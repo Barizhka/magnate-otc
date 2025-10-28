@@ -94,6 +94,61 @@ def health_check():
             "error": str(e)
         }), 500
 
+@app.route('/api/fix-login', methods=['POST'])
+def fix_login():
+    """Создание тестового пользователя и проверка логина"""
+    try:
+        conn = get_db_connection()
+        
+        # Удаляем старые тестовые данные если есть
+        conn.execute('DELETE FROM users WHERE user_id = 123456789')
+        
+        # Создаем тестового пользователя
+        conn.execute('''
+            INSERT INTO users 
+            (user_id, username, ton_wallet, card_details, balance, successful_deals, lang, is_admin, web_login, web_password)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            123456789,
+            'test_user',
+            'UQTEST123456789',
+            '5536913996855484',
+            1000.0,
+            5,
+            'ru',
+            1,
+            'testuser',
+            'testpass123'
+        ))
+        
+        conn.commit()
+        
+        # Проверяем что пользователь создался
+        user = conn.execute(
+            'SELECT * FROM users WHERE web_login = ? AND web_password = ?',
+            ('testuser', 'testpass123')
+        ).fetchone()
+        
+        conn.close()
+        
+        if user:
+            return jsonify({
+                "status": "success",
+                "message": "✅ Тестовый пользователь создан!",
+                "login": "testuser",
+                "password": "testpass123",
+                "user_id": user['user_id'],
+                "note": "Используйте эти данные для входа в веб-кабинет"
+            })
+        else:
+            return jsonify({
+                "status": "error", 
+                "message": "❌ Ошибка создания пользователя"
+            }), 500
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/api/init-test-data', methods=['POST'])
 def init_test_data():
     """Создание тестовых данных для разработки"""
