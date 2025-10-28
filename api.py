@@ -364,6 +364,60 @@ with app.app_context():
     init_db()
     logger.info("🚀 Magante OTC API started successfully")
 
+@app.route('/api/sync-from-bot', methods=['POST'])
+def sync_from_bot():
+    """Синхронизация данных из бота"""
+    try:
+        data = request.get_json()
+        users = data.get('users', [])
+        deals = data.get('deals', [])
+        
+        conn = get_db_connection()
+        
+        # Синхронизация пользователей
+        for user_data in users:
+            conn.execute('''
+                INSERT OR REPLACE INTO users 
+                (user_id, username, ton_wallet, card_details, balance, successful_deals, lang, is_admin, web_login, web_password)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                user_data['user_id'],
+                user_data.get('username', ''),
+                user_data.get('ton_wallet', ''),
+                user_data.get('card_details', ''),
+                user_data.get('balance', 0),
+                user_data.get('successful_deals', 0),
+                user_data.get('lang', 'ru'),
+                user_data.get('is_admin', 0),
+                user_data.get('web_login'),
+                user_data.get('web_password')
+            ))
+        
+        # Синхронизация сделок
+        for deal_data in deals:
+            conn.execute('''
+                INSERT OR REPLACE INTO deals 
+                (deal_id, amount, description, seller_id, buyer_id, status, payment_method, source)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                deal_data['deal_id'],
+                deal_data['amount'],
+                deal_data['description'],
+                deal_data['seller_id'],
+                deal_data.get('buyer_id'),
+                deal_data.get('status', 'active'),
+                deal_data.get('payment_method'),
+                deal_data.get('source', 'bot')
+            ))
+        
+        conn.commit()
+        conn.close()
+        
+        return jsonify({"message": f"Синхронизировано: {len(users)} пользователей, {len(deals)} сделок"})
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port, debug=False)
