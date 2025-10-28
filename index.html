@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Magante OTC - Безопасные сделки</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        .hero-section {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 100px 0;
+        }
+        .feature-card {
+            border: none;
+            border-radius: 15px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+            transition: transform 0.3s;
+        }
+        .feature-card:hover {
+            transform: translateY(-5px);
+        }
+        .login-form {
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            padding: 40px;
+        }
+        .deal-card {
+            border-left: 4px solid #007bff;
+        }
+        .deal-completed {
+            border-left-color: #28a745;
+        }
+        .deal-cancelled {
+            border-left-color: #dc3545;
+        }
+    </style>
+</head>
+<body>
+    <!-- Навигация -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+        <div class="container">
+            <a class="navbar-brand" href="#">
+                <i class="fas fa-shield-alt"></i> Magante OTC
+            </a>
+            <div class="navbar-nav ms-auto">
+                <a class="nav-link" href="#" id="loginNav" onclick="showLogin()">Вход</a>
+                <a class="nav-link" href="#" id="logoutNav" style="display: none;" onclick="logout()">Выйти</a>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Главный экран -->
+    <section class="hero-section text-center">
+        <div class="container">
+            <h1 class="display-4 fw-bold mb-4">Magante OTC</h1>
+            <p class="lead mb-4">Безопасная платформа для OTC-сделок с гарантией исполнения</p>
+            <button class="btn btn-light btn-lg" onclick="showLogin()">Войти в кабинет</button>
+        </div>
+    </section>
+
+    <!-- Форма входа -->
+    <section id="loginSection" class="py-5" style="display: none;">
+        <div class="container">
+            <div class="row justify-content-center">
+                <div class="col-md-6">
+                    <div class="login-form">
+                        <h3 class="text-center mb-4">Вход в кабинет</h3>
+                        <form id="loginForm">
+                            <div class="mb-3">
+                                <label class="form-label">Логин</label>
+                                <input type="text" class="form-control" id="login" required>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Пароль</label>
+                                <input type="password" class="form-control" id="password" required>
+                            </div>
+                            <button type="submit" class="btn btn-primary w-100">Войти</button>
+                        </form>
+                        <div class="text-center mt-3">
+                            <small>Получите логин и пароль в <a href="https://t.me/magnate_otc_bot" target="_blank">Telegram боте</a></small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Функционал -->
+    <section id="dashboard" class="py-5" style="display: none;">
+        <div class="container">
+            <div class="row mb-4">
+                <div class="col-12">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <h3>Личный кабинет</h3>
+                        <button class="btn btn-outline-secondary btn-sm" onclick="logout()">Выйти</button>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="row">
+                <!-- Навигация -->
+                <div class="col-md-3">
+                    <div class="list-group">
+                        <a href="#" class="list-group-item list-group-item-action active" onclick="showSection('deals')">
+                            <i class="fas fa-exchange-alt"></i> Мои сделки
+                        </a>
+                        <a href="#" class="list-group-item list-group-item-action" onclick="showSection('createDeal')">
+                            <i class="fas fa-plus"></i> Создать сделку
+                        </a>
+                        <a href="#" class="list-group-item list-group-item-action" onclick="showSection('tickets')">
+                            <i class="fas fa-ticket-alt"></i> Тикеты
+                        </a>
+                        <a href="#" class="list-group-item list-group-item-action" onclick="showSection('profile')">
+                            <i class="fas fa-user"></i> Профиль
+                        </a>
+                        <a href="#" class="list-group-item list-group-item-action" onclick="showSection('admin')" id="adminLink" style="display: none;">
+                            <i class="fas fa-cog"></i> Админ-панель
+                        </a>
+                    </div>
+                </div>
+
+                <!-- Контент -->
+                <div class="col-md-9">
+                    <!-- Мои сделки -->
+                    <div id="dealsSection">
+                        <h4>Мои сделки</h4>
+                        <div class="mb-3">
+                            <button class="btn btn-outline-primary btn-sm" onclick="loadUserDeals()">
+                                <i class="fas fa-sync-alt"></i> Обновить
+                            </button>
+                        </div>
+                        <div id="dealsList" class="row"></div>
+                    </div>
+
+                    <!-- Создание сделки -->
+                    <div id="createDealSection" style="display: none;">
+                        <h4>Создать сделку</h4>
+                        <form id="createDealForm">
+                            <div class="mb-3">
+                                <label class="form-label">Сумма</label>
+                                <input type="number" class="form-control" id="dealAmount" step="0.01" min="0.01" required>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Описание</label>
+                                <textarea class="form-control" id="dealDescription" rows="3" placeholder="Опишите товар или услугу..." required></textarea>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Метод оплаты</label>
+                                <select class="form-select" id="dealPaymentMethod" required>
+                                    <option value="ton">💎 TON</option>
+                                    <option value="sbp">💳 СБП</option>
+                                    <option value="stars">⭐ Telegram Stars</option>
+                                </select>
+                            </div>
+                            <button type="submit" class="btn btn-success">
+                                <i class="fas fa-plus"></i> Создать сделку
+                            </button>
+                        </form>
+                    </div>
+
+                    <!-- Тикеты -->
+                    <div id="ticketsSection" style="display: none;">
+                        <h4>Мои тикеты</h4>
+                        <button class="btn btn-primary mb-3" onclick="showCreateTicket()">
+                            <i class="fas fa-plus"></i> Создать тикет
+                        </button>
+                        <div id="ticketsList"></div>
+                        
+                        <!-- Форма создания тикета -->
+                        <div id="createTicketForm" style="display: none;">
+                            <div class="card">
+                                <div class="card-body">
+                                    <h5 class="card-title">Новый тикет</h5>
+                                    <form id="newTicketForm">
+                                        <div class="mb-3">
+                                            <label class="form-label">Тема</label>
+                                            <input type="text" class="form-control" id="ticketSubject" placeholder="Кратко опишите проблему..." required>
+                                        </div>
+                                        <div class="mb-3">
+                                            <label class="form-label">Сообщение</label>
+                                            <textarea class="form-control" id="ticketMessage" rows="5" placeholder="Подробно опишите вашу проблему..." required></textarea>
+                                        </div>
+                                        <button type="submit" class="btn btn-success">Создать тикет</button>
+                                        <button type="button" class="btn btn-secondary" onclick="hideCreateTicket()">Отмена</button>
+                                    </form>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Профиль -->
+                    <div id="profileSection" style="display: none;">
+                        <h4>Мой профиль</h4>
+                        <div id="profileInfo"></div>
+                    </div>
+
+                    <!-- Админ-панель -->
+                    <div id="adminSection" style="display: none;">
+                        <h4>Админ-панель</h4>
+                        <div class="row mb-4">
+                            <div class="col-md-6">
+                                <div class="card">
+                                    <div class="card-body">
+                                        <h5 class="card-title">Статистика</h5>
+                                        <div id="adminStats"></div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="card">
+                                    <div class="card-body">
+                                        <h5 class="card-title">Быстрые действия</h5>
+                                        <button class="btn btn-primary w-100 mb-2" onclick="loadAllDeals()">Все сделки</button>
+                                        <button class="btn btn-info w-100 mb-2" onclick="loadAllTickets()">Все тикеты</button>
+                                        <button class="btn btn-warning w-100" onclick="loadUsers()">Пользователи</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div id="adminContent" class="mt-4"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Уведомления -->
+    <div class="toast-container position-fixed top-0 end-0 p-3">
+        <div id="liveToast" class="toast" role="alert" aria-live="assertive" aria-atomic="true">
+            <div class="toast-header">
+                <strong class="me-auto" id="toastTitle">Уведомление</strong>
+                <button type="button" class="btn-close" data-bs-dismiss="toast" aria-label="Close"></button>
+            </div>
+            <div class="toast-body" id="toastMessage">
+                Сообщение
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
