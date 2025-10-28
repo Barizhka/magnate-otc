@@ -11,10 +11,10 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
-CORS(app)  # Разрешаем CORS для всех доменов
+CORS(app)
 
 # Секретный ключ из переменных окружения
-app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret-key-12345')
+app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', '06844ad5ba404a9009ae3a10d55e9ee1')
 
 def get_db_connection():
     """Создание подключения к базе данных"""
@@ -24,7 +24,7 @@ def get_db_connection():
     return conn
 
 def init_db():
-    """Инициализация базы данных если её нет"""
+    """Инициализация базы данных"""
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
@@ -147,60 +147,6 @@ def fix_login():
             }), 500
         
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-@app.route('/api/init-test-data', methods=['POST'])
-def init_test_data():
-    """Создание тестовых данных для разработки"""
-    try:
-        conn = get_db_connection()
-        
-        # Создаем тестового пользователя
-        conn.execute('''
-            INSERT OR REPLACE INTO users 
-            (user_id, username, ton_wallet, card_details, balance, successful_deals, lang, is_admin, web_login, web_password)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (
-            123456789,
-            'test_user',
-            'UQTEST123456789',
-            '5536913996855484',
-            1000.0,
-            5,
-            'ru',
-            1,
-            'testuser',
-            'testpass123'
-        ))
-        
-        # Создаем тестовую сделку
-        conn.execute('''
-            INSERT OR REPLACE INTO deals 
-            (deal_id, amount, description, seller_id, status, payment_method, source)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        ''', (
-            'test_deal_001',
-            100.0,
-            'Тестовая сделка для демонстрации',
-            123456789,
-            'active',
-            'ton',
-            'web'
-        ))
-        
-        conn.commit()
-        conn.close()
-        
-        logger.info("Test data created successfully")
-        return jsonify({
-            "message": "Тестовые данные созданы", 
-            "login": "testuser", 
-            "password": "testpass123",
-            "api_url": "https://magnate-otc-1.onrender.com"
-        })
-        
-    except Exception as e:
-        logger.error(f"Test data creation error: {e}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/login', methods=['POST'])
@@ -414,11 +360,6 @@ def get_profile():
         logger.error(f"Get profile error: {str(e)}")
         return jsonify({'error': 'Internal server error'}), 500
 
-# Инициализация базы данных при запуске
-with app.app_context():
-    init_db()
-    logger.info("🚀 Magante OTC API started successfully")
-
 @app.route('/api/sync-from-bot', methods=['POST'])
 def sync_from_bot():
     """Синхронизация данных из бота"""
@@ -468,10 +409,20 @@ def sync_from_bot():
         conn.commit()
         conn.close()
         
-        return jsonify({"message": f"Синхронизировано: {len(users)} пользователей, {len(deals)} сделок"})
+        logger.info(f"Синхронизировано: {len(users)} пользователей, {len(deals)} сделок")
+        return jsonify({
+            "message": f"Синхронизировано: {len(users)} пользователей, {len(deals)} сделок",
+            "status": "success"
+        })
         
     except Exception as e:
+        logger.error(f"Sync error: {str(e)}")
         return jsonify({'error': str(e)}), 500
+
+# Инициализация базы данных при запуске
+with app.app_context():
+    init_db()
+    logger.info("🚀 Magante OTC API started successfully")
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
