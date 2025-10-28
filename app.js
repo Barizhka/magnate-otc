@@ -1,126 +1,62 @@
-// Mock API для демонстрации (без бэкенда)
-class MockAPI {
-    constructor() {
-        this.users = JSON.parse(localStorage.getItem('mock_users')) || {};
-        this.deals = JSON.parse(localStorage.getItem('mock_deals')) || {};
-        this.tickets = JSON.parse(localStorage.getItem('mock_tickets')) || {};
-    }
-
-    saveData() {
-        localStorage.setItem('mock_users', JSON.stringify(this.users));
-        localStorage.setItem('mock_deals', JSON.stringify(this.deals));
-        localStorage.setItem('mock_tickets', JSON.stringify(this.tickets));
-    }
-
-    async login(login, password) {
-        // В реальном приложении здесь будет запрос к бэкенду
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        
-        const user = Object.values(this.users).find(u => u.web_login === login && u.web_password === password);
-        if (user) {
-            const token = btoa(JSON.stringify({ user_id: user.user_id, timestamp: Date.now() }));
-            localStorage.setItem('magante_token', token);
-            return { token, user };
-        }
-        throw new Error('Неверный логин или пароль');
-    }
-
-    async createDeal(userId, amount, description, paymentMethod) {
-        await new Promise(resolve => setTimeout(resolve, 500));
-        
-        const dealId = 'deal_' + Date.now();
-        const deal = {
-            id: dealId,
-            amount: amount,
-            description: description,
-            seller_id: userId,
-            buyer_id: null,
-            status: 'active',
-            payment_method: paymentMethod,
-            source: 'web',
-            created_at: new Date().toISOString()
-        };
-        
-        this.deals[dealId] = deal;
-        this.saveData();
-        
-        return deal;
-    }
-
-    async getUserDeals(userId) {
-        await new Promise(resolve => setTimeout(resolve, 500));
-        
-        return Object.values(this.deals).filter(deal => 
-            deal.seller_id === userId || deal.buyer_id === userId
-        ).sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-    }
-
-    async createTicket(userId, subject, message) {
-        await new Promise(resolve => setTimeout(resolve, 500));
-        
-        const ticketId = 'ticket_' + Date.now();
-        const ticket = {
-            id: ticketId,
-            user_id: userId,
-            subject: subject,
-            message: message,
-            status: 'open',
-            created_at: new Date().toISOString()
-        };
-        
-        this.tickets[ticketId] = ticket;
-        this.saveData();
-        
-        return ticket;
-    }
-
-    async getUserTickets(userId) {
-        await new Promise(resolve => setTimeout(resolve, 500));
-        
-        return Object.values(this.tickets).filter(ticket => 
-            ticket.user_id === userId
-        ).sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-    }
-
-    // Инициализация тестовых данных
-    initTestData() {
-        if (Object.keys(this.users).length === 0) {
-            this.users[123456789] = {
-                user_id: 123456789,
-                username: 'test_user',
-                ton_wallet: 'UQTEST123456789',
-                card_details: '5536913996855484',
-                balance: 1000,
-                successful_deals: 5,
-                lang: 'ru',
-                is_admin: true,
-                web_login: 'testuser',
-                web_password: 'testpass123'
-            };
-            this.saveData();
-        }
-    }
-}
-
 class MaganteOTC {
     constructor() {
-        this.api = new MockAPI();
-        this.api.initTestData();
+        // Замените на ваш URL от Render после деплоя
+        this.apiBase = 'https://magnate-otc-api.onrender.com';
         this.currentUser = null;
-        this.token = null;
+        this.token = localStorage.getItem('magante_token');
+        this.isOnline = false;
+        
+        // Проверяем доступность API при инициализации
+        this.checkAPIStatus();
+    }
+
+    async checkAPIStatus() {
+        try {
+            const response = await fetch(`${this.apiBase}/api/health`);
+            if (response.ok) {
+                this.isOnline = true;
+                console.log('✅ API подключен');
+            } else {
+                this.isOnline = false;
+                console.warn('⚠️ API недоступен');
+            }
+        } catch (error) {
+            this.isOnline = false;
+            console.error('❌ Ошибка подключения к API:', error);
+        }
     }
 
     async login(login, password) {
         try {
             this.showLoading(true);
-            const result = await this.api.login(login, password);
             
-            this.currentUser = result.user;
-            this.token = result.token;
-            
-            this.showDashboard();
-            this.showToast('Успешный вход', 'success');
-            return true;
+            if (!this.isOnline) {
+                throw new Error('Сервер временно недоступен. Попробуйте позже.');
+            }
+
+            const response = await fetch(`${this.apiBase}/api/login`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ 
+                    login: login.trim(),
+                    password: password.trim()
+                })
+            });
+
+            const data = await response.json();
+
+            if (response.ok) {
+                this.currentUser = data.user;
+                this.token = data.token;
+                localStorage.setItem('magante_token', this.token);
+                this.showDashboard();
+                this.showToast('✅ Успешный вход!', 'success');
+                return true;
+            } else {
+                throw new Error(data.error || 'Ошибка входа');
+            }
         } catch (error) {
             this.showToast(error.message, 'error');
             return false;
@@ -132,13 +68,36 @@ class MaganteOTC {
     async createDeal(amount, description, paymentMethod) {
         try {
             this.showLoading(true);
-            const deal = await this.api.createDeal(this.currentUser.user_id, amount, description, paymentMethod);
-            
-            this.showToast('Сделка создана успешно!', 'success');
-            this.loadUserDeals();
-            return deal;
+
+            if (!this.token) {
+                throw new Error('Требуется авторизация');
+            }
+
+            const response = await fetch(`${this.apiBase}/api/deals`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${this.token}`
+                },
+                body: JSON.stringify({
+                    amount: parseFloat(amount),
+                    description: description.trim(),
+                    payment_method: paymentMethod
+                })
+            });
+
+            const data = await response.json();
+
+            if (response.ok) {
+                this.showToast('✅ Сделка создана успешно!', 'success');
+                this.loadUserDeals();
+                return data;
+            } else {
+                throw new Error(data.error || 'Ошибка при создании сделки');
+            }
         } catch (error) {
             this.showToast(error.message, 'error');
+            return null;
         } finally {
             this.showLoading(false);
         }
@@ -147,25 +106,76 @@ class MaganteOTC {
     async loadUserDeals() {
         try {
             this.showLoading(true);
-            const deals = await this.api.getUserDeals(this.currentUser.user_id);
-            this.displayDeals(deals);
+
+            if (!this.token) {
+                throw new Error('Требуется авторизация');
+            }
+
+            const response = await fetch(`${this.apiBase}/api/deals/my`, {
+                headers: {
+                    'Authorization': `Bearer ${this.token}`
+                }
+            });
+
+            if (response.ok) {
+                const deals = await response.json();
+                this.displayDeals(deals);
+            } else {
+                throw new Error('Ошибка загрузки сделок');
+            }
         } catch (error) {
             this.showToast('Ошибка загрузки сделок', 'error');
+            this.displayDeals([]);
         } finally {
             this.showLoading(false);
+        }
+    }
+
+    async loadProfile() {
+        try {
+            if (!this.token) {
+                return;
+            }
+
+            const response = await fetch(`${this.apiBase}/api/profile`, {
+                headers: {
+                    'Authorization': `Bearer ${this.token}`
+                }
+            });
+
+            if (response.ok) {
+                const profile = await response.json();
+                this.displayProfile(profile);
+            }
+        } catch (error) {
+            console.error('Profile load error:', error);
+            this.displayProfile(this.currentUser);
         }
     }
 
     async createTicket(subject, message) {
         try {
             this.showLoading(true);
-            await this.api.createTicket(this.currentUser.user_id, subject, message);
+
+            // Временная реализация - сохранение в localStorage
+            const tickets = JSON.parse(localStorage.getItem('user_tickets')) || [];
+            const newTicket = {
+                id: 'ticket_' + Date.now(),
+                subject: subject,
+                message: message,
+                status: 'open',
+                created_at: new Date().toISOString(),
+                user_id: this.currentUser.user_id
+            };
             
-            this.showToast('Тикет создан успешно!', 'success');
+            tickets.push(newTicket);
+            localStorage.setItem('user_tickets', JSON.stringify(tickets));
+            
+            this.showToast('✅ Тикет создан успешно!', 'success');
             this.loadUserTickets();
             return true;
         } catch (error) {
-            this.showToast(error.message, 'error');
+            this.showToast('Ошибка при создании тикета', 'error');
             return false;
         } finally {
             this.showLoading(false);
@@ -174,13 +184,13 @@ class MaganteOTC {
 
     async loadUserTickets() {
         try {
-            this.showLoading(true);
-            const tickets = await this.api.getUserTickets(this.currentUser.user_id);
-            this.displayTickets(tickets);
+            // Временная реализация - загрузка из localStorage
+            const tickets = JSON.parse(localStorage.getItem('user_tickets')) || [];
+            const userTickets = tickets.filter(ticket => ticket.user_id === this.currentUser.user_id);
+            this.displayTickets(userTickets);
         } catch (error) {
             this.showToast('Ошибка загрузки тикетов', 'error');
-        } finally {
-            this.showLoading(false);
+            this.displayTickets([]);
         }
     }
 
@@ -189,8 +199,11 @@ class MaganteOTC {
         if (!deals || deals.length === 0) {
             container.innerHTML = `
                 <div class="col-12">
-                    <div class="alert alert-info">
-                        <i class="fas fa-info-circle"></i> У вас пока нет сделок
+                    <div class="alert alert-info text-center">
+                        <i class="fas fa-info-circle me-2"></i>
+                        У вас пока нет сделок
+                        <br>
+                        <small class="text-muted">Создайте первую сделку во вкладке "Создать сделку"</small>
                     </div>
                 </div>
             `;
@@ -200,24 +213,51 @@ class MaganteOTC {
         container.innerHTML = deals.map(deal => {
             const statusClass = this.getStatusClass(deal.status);
             const statusText = this.getStatusText(deal.status);
+            const statusColor = this.getStatusColor(deal.status);
             const paymentMethod = this.getPaymentMethodText(deal.payment_method);
+            const createdDate = new Date(deal.created_at).toLocaleDateString('ru-RU');
             
             return `
-                <div class="col-md-6 mb-3">
-                    <div class="card feature-card deal-card ${statusClass}">
-                        <div class="card-body">
-                            <div class="d-flex justify-content-between align-items-start mb-2">
-                                <h5 class="card-title">Сделка #${deal.id.slice(-8)}</h5>
-                                <span class="badge bg-${this.getStatusColor(deal.status)}">${statusText}</span>
+                <div class="col-md-6 mb-4">
+                    <div class="card feature-card deal-card ${statusClass} h-100">
+                        <div class="card-body d-flex flex-column">
+                            <div class="d-flex justify-content-between align-items-start mb-3">
+                                <h5 class="card-title mb-0">
+                                    <i class="fas fa-exchange-alt me-2"></i>
+                                    Сделка #${deal.id.slice(-8)}
+                                </h5>
+                                <span class="badge bg-${statusColor}">${statusText}</span>
                             </div>
-                            <p class="card-text">${deal.description}</p>
-                            <div class="deal-info">
-                                <p><strong>Сумма:</strong> ${deal.amount} ${paymentMethod}</p>
-                                <p><strong>Статус:</strong> ${statusText}</p>
-                                <p><strong>Создана:</strong> ${new Date(deal.created_at).toLocaleDateString()}</p>
-                                <p><strong>Источник:</strong> ${deal.source === 'web' ? '🌐 Веб' : '🤖 Бот'}</p>
+                            
+                            <p class="card-text flex-grow-1">${deal.description}</p>
+                            
+                            <div class="deal-info mt-auto">
+                                <div class="row small text-muted">
+                                    <div class="col-6">
+                                        <strong>Сумма:</strong><br>
+                                        <span class="fw-bold text-dark">${deal.amount} ${paymentMethod}</span>
+                                    </div>
+                                    <div class="col-6">
+                                        <strong>Статус:</strong><br>
+                                        ${statusText}
+                                    </div>
+                                </div>
+                                <div class="row small text-muted mt-2">
+                                    <div class="col-6">
+                                        <strong>Создана:</strong><br>
+                                        ${createdDate}
+                                    </div>
+                                    <div class="col-6">
+                                        <strong>Источник:</strong><br>
+                                        ${deal.source === 'web' ? '🌐 Веб' : '🤖 Бот'}
+                                    </div>
+                                </div>
+                                ${deal.buyer_id ? `
+                                    <div class="mt-2">
+                                        <small><strong>Покупатель:</strong> ID ${deal.buyer_id}</small>
+                                    </div>
+                                ` : ''}
                             </div>
-                            ${deal.buyer_id ? `<p><strong>Покупатель:</strong> ID ${deal.buyer_id}</p>` : ''}
                         </div>
                     </div>
                 </div>
@@ -229,25 +269,39 @@ class MaganteOTC {
         const container = document.getElementById('ticketsList');
         if (!tickets || tickets.length === 0) {
             container.innerHTML = `
-                <div class="alert alert-info">
-                    <i class="fas fa-info-circle"></i> У вас пока нет тикетов
+                <div class="alert alert-info text-center">
+                    <i class="fas fa-info-circle me-2"></i>
+                    У вас пока нет тикетов
+                    <br>
+                    <small class="text-muted">Создайте первый тикет для обращения в поддержку</small>
                 </div>
             `;
             return;
         }
 
         container.innerHTML = tickets.map(ticket => {
+            const statusColor = this.getTicketStatusColor(ticket.status);
+            const createdDate = new Date(ticket.created_at).toLocaleDateString('ru-RU');
+            
             return `
                 <div class="card mb-3">
                     <div class="card-body">
-                        <div class="d-flex justify-content-between align-items-start mb-2">
-                            <h5 class="card-title">${ticket.subject}</h5>
-                            <span class="badge bg-${this.getTicketStatusColor(ticket.status)}">${ticket.status}</span>
+                        <div class="d-flex justify-content-between align-items-start mb-3">
+                            <h5 class="card-title mb-0">
+                                <i class="fas fa-ticket-alt me-2"></i>
+                                ${ticket.subject}
+                            </h5>
+                            <span class="badge bg-${statusColor}">${ticket.status}</span>
                         </div>
                         <p class="card-text">${ticket.message}</p>
                         <div class="ticket-meta">
                             <small class="text-muted">
-                                <i class="fas fa-calendar"></i> Создан: ${new Date(ticket.created_at).toLocaleDateString()}
+                                <i class="fas fa-calendar me-1"></i>
+                                Создан: ${createdDate}
+                                <span class="ms-3">
+                                    <i class="fas fa-hashtag me-1"></i>
+                                    ID: ${ticket.id.slice(-8)}
+                                </span>
                             </small>
                         </div>
                     </div>
@@ -256,11 +310,88 @@ class MaganteOTC {
         }).join('');
     }
 
+    displayProfile(profile) {
+        const container = document.getElementById('profileInfo');
+        if (!profile) {
+            container.innerHTML = `
+                <div class="alert alert-warning">
+                    <i class="fas fa-exclamation-triangle me-2"></i>
+                    Не удалось загрузить данные профиля
+                </div>
+            `;
+            return;
+        }
+
+        container.innerHTML = `
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">
+                        <i class="fas fa-user me-2"></i>
+                        Информация о профиле
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label text-muted small mb-1">ID пользователя</label>
+                                <p class="mb-0 fw-bold">${profile.user_id}</p>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label text-muted small mb-1">Баланс</label>
+                                <p class="mb-0 fw-bold text-success">${profile.balance} RUB</p>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label text-muted small mb-1">Успешные сделки</label>
+                                <p class="mb-0 fw-bold">${profile.successful_deals}</p>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label text-muted small mb-1">Статус</label>
+                                <p class="mb-0">
+                                    ${profile.is_admin ? 
+                                        '<span class="badge bg-danger">👑 Администратор</span>' : 
+                                        '<span class="badge bg-secondary">👤 Пользователь</span>'
+                                    }
+                                </p>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label text-muted small mb-1">Язык</label>
+                                <p class="mb-0 fw-bold">${profile.lang === 'ru' ? '🇷🇺 Русский' : '🇺🇸 English'}</p>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label text-muted small mb-1">TON кошелек</label>
+                                <p class="mb-0 font-monospace small">${profile.ton_wallet || '<span class="text-muted">Не указан</span>'}</p>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label text-muted small mb-1">Банковская карта</label>
+                                <p class="mb-0">${profile.card_details || '<span class="text-muted">Не указана</span>'}</p>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label text-muted small mb-1">Логин веб-кабинета</label>
+                                <p class="mb-0 font-monospace small">${profile.web_login || '<span class="text-muted">Не установлен</span>'}</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="mt-4 p-3 bg-light rounded">
+                        <small class="text-muted">
+                            <i class="fas fa-info-circle me-1"></i>
+                            Для изменения данных используйте Telegram бота @magnate_otc_bot
+                        </small>
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+
     getStatusClass(status) {
         const classes = {
             'completed': 'deal-completed',
             'cancelled': 'deal-cancelled',
-            'active': ''
+            'active': '',
+            'confirmed': 'deal-confirmed',
+            'seller_sent': 'deal-sent'
         };
         return classes[status] || '';
     }
@@ -312,74 +443,106 @@ class MaganteOTC {
         document.getElementById('loginNav').style.display = 'none';
         document.getElementById('logoutNav').style.display = 'block';
         
+        // Показываем статус подключения
+        this.showConnectionStatus();
+        
+        // Загружаем данные
         this.loadUserDeals();
         this.loadUserTickets();
         this.loadProfile();
         
+        // Показываем админ-панель если пользователь админ
         if (this.currentUser && this.currentUser.is_admin) {
             document.getElementById('adminLink').style.display = 'block';
         }
     }
 
-    loadProfile() {
-        const container = document.getElementById('profileInfo');
-        container.innerHTML = `
-            <div class="card">
-                <div class="card-body">
-                    <h5 class="card-title">Информация о профиле</h5>
-                    <div class="row">
-                        <div class="col-md-6">
-                            <p><strong>ID пользователя:</strong> ${this.currentUser.user_id}</p>
-                            <p><strong>Баланс:</strong> ${this.currentUser.balance} RUB</p>
-                            <p><strong>Успешные сделки:</strong> ${this.currentUser.successful_deals}</p>
-                        </div>
-                        <div class="col-md-6">
-                            <p><strong>Язык:</strong> ${this.currentUser.lang}</p>
-                            <p><strong>TON кошелек:</strong> ${this.currentUser.ton_wallet || 'Не указан'}</p>
-                            <p><strong>Карта:</strong> ${this.currentUser.card_details || 'Не указана'}</p>
-                        </div>
-                    </div>
-                    <div class="mt-3">
-                        <button class="btn btn-outline-primary btn-sm" onclick="app.showToast('Для изменения данных используйте Telegram бота', 'info')">
-                            <i class="fas fa-edit"></i> Изменить данные
-                        </button>
-                    </div>
-                </div>
-            </div>
+    showConnectionStatus() {
+        // Добавляем индикатор статуса в навигацию
+        let statusIndicator = document.getElementById('connectionStatus');
+        if (!statusIndicator) {
+            statusIndicator = document.createElement('div');
+            statusIndicator.id = 'connectionStatus';
+            statusIndicator.className = 'navbar-text ms-3';
+            document.querySelector('.navbar-nav').appendChild(statusIndicator);
+        }
+        
+        statusIndicator.innerHTML = `
+            <small class="${this.isOnline ? 'text-success' : 'text-warning'}">
+                <i class="fas fa-circle ${this.isOnline ? 'text-success' : 'text-warning'}"></i>
+                ${this.isOnline ? 'API онлайн' : 'API офлайн'}
+            </small>
         `;
     }
 
     showLoading(show) {
-        // Простая реализация индикатора загрузки
-        if (show) {
-            document.body.style.opacity = '0.7';
-            document.body.style.pointerEvents = 'none';
-        } else {
-            document.body.style.opacity = '1';
-            document.body.style.pointerEvents = 'auto';
+        const loader = document.getElementById('loadingIndicator');
+        if (!loader && show) {
+            // Создаем индикатор загрузки
+            const loaderHtml = `
+                <div id="loadingIndicator" class="position-fixed top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center" style="background: rgba(0,0,0,0.5); z-index: 9999;">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Загрузка...</span>
+                    </div>
+                    <span class="ms-2 text-white">Загрузка...</span>
+                </div>
+            `;
+            document.body.insertAdjacentHTML('beforeend', loaderHtml);
+        } else if (loader && !show) {
+            loader.remove();
         }
     }
 
     showToast(message, type = 'info') {
-        const toast = document.getElementById('liveToast');
-        const toastTitle = document.getElementById('toastTitle');
-        const toastMessage = document.getElementById('toastMessage');
+        // Создаем или находим контейнер для тостов
+        let toastContainer = document.getElementById('toastContainer');
+        if (!toastContainer) {
+            toastContainer = document.createElement('div');
+            toastContainer.id = 'toastContainer';
+            toastContainer.className = 'toast-container position-fixed top-0 end-0 p-3';
+            document.body.appendChild(toastContainer);
+        }
+
+        const toastId = 'toast-' + Date.now();
+        const bgClass = {
+            'success': 'bg-success',
+            'error': 'bg-danger',
+            'warning': 'bg-warning',
+            'info': 'bg-info'
+        }[type] || 'bg-info';
+
+        const toastHtml = `
+            <div id="${toastId}" class="toast ${bgClass} text-white" role="alert">
+                <div class="toast-header ${bgClass} text-white">
+                    <strong class="me-auto">${this.getToastTitle(type)}</strong>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="toast"></button>
+                </div>
+                <div class="toast-body">
+                    ${message}
+                </div>
+            </div>
+        `;
+
+        toastContainer.insertAdjacentHTML('beforeend', toastHtml);
         
+        const toastElement = document.getElementById(toastId);
+        const toast = new bootstrap.Toast(toastElement, { delay: 4000 });
+        toast.show();
+
+        // Удаляем toast из DOM после скрытия
+        toastElement.addEventListener('hidden.bs.toast', () => {
+            toastElement.remove();
+        });
+    }
+
+    getToastTitle(type) {
         const titles = {
             'success': 'Успех',
             'error': 'Ошибка',
             'info': 'Информация',
             'warning': 'Предупреждение'
         };
-        
-        toastTitle.textContent = titles[type] || 'Уведомление';
-        toastMessage.textContent = message;
-        
-        // Изменение цвета тоста в зависимости от типа
-        toast.className = `toast ${type === 'error' ? 'bg-danger text-white' : type === 'success' ? 'bg-success text-white' : ''}`;
-        
-        const bsToast = new bootstrap.Toast(toast);
-        bsToast.show();
+        return titles[type] || 'Уведомление';
     }
 
     logout() {
@@ -392,7 +555,26 @@ class MaganteOTC {
         document.getElementById('logoutNav').style.display = 'none';
         document.querySelector('.hero-section').style.display = 'block';
         
+        // Очищаем статус подключения
+        const statusIndicator = document.getElementById('connectionStatus');
+        if (statusIndicator) {
+            statusIndicator.remove();
+        }
+        
         this.showToast('Вы вышли из системы', 'info');
+    }
+
+    // Админ функции (заглушки для будущей реализации)
+    async loadAllDeals() {
+        this.showToast('Админ-панель в разработке', 'info');
+    }
+
+    async loadAllTickets() {
+        this.showToast('Админ-панель в разработке', 'info');
+    }
+
+    async loadUsers() {
+        this.showToast('Админ-панель в разработке', 'info');
     }
 }
 
@@ -412,13 +594,25 @@ function showSection(sectionName) {
     });
     
     // Показать выбранную секцию
-    document.getElementById(sectionName + 'Section').style.display = 'block';
+    const targetSection = document.getElementById(sectionName + 'Section');
+    if (targetSection) {
+        targetSection.style.display = 'block';
+    }
     
     // Обновить активную ссылку в навигации
     document.querySelectorAll('.list-group-item').forEach(item => {
         item.classList.remove('active');
     });
     event.target.classList.add('active');
+
+    // Обновляем данные при переключении секций
+    if (sectionName === 'deals') {
+        app.loadUserDeals();
+    } else if (sectionName === 'tickets') {
+        app.loadUserTickets();
+    } else if (sectionName === 'profile') {
+        app.loadProfile();
+    }
 }
 
 function showCreateTicket() {
@@ -429,90 +623,138 @@ function showCreateTicket() {
 function hideCreateTicket() {
     document.getElementById('createTicketForm').style.display = 'none';
     document.getElementById('ticketsList').style.display = 'block';
+    document.getElementById('newTicketForm').reset();
 }
 
 function logout() {
     app.logout();
 }
 
-// Админ функции (заглушки)
+// Админ функции
 function loadAllDeals() {
-    app.showToast('Функция в разработке', 'info');
+    app.loadAllDeals();
 }
 
 function loadAllTickets() {
-    app.showToast('Функция в разработке', 'info');
+    app.loadAllTickets();
 }
 
 function loadUsers() {
-    app.showToast('Функция в разработке', 'info');
+    app.loadUsers();
 }
 
 // Обработчики событий
-document.getElementById('loginForm').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const login = document.getElementById('login').value;
-    const password = document.getElementById('password').value;
-    await app.login(login, password);
+document.addEventListener('DOMContentLoaded', function() {
+    // Обработчик формы входа
+    const loginForm = document.getElementById('loginForm');
+    if (loginForm) {
+        loginForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const login = document.getElementById('login').value;
+            const password = document.getElementById('password').value;
+            
+            if (!login.trim() || !password.trim()) {
+                app.showToast('Заполните все поля', 'error');
+                return;
+            }
+            
+            await app.login(login, password);
+        });
+    }
+
+    // Обработчик формы создания сделки
+    const createDealForm = document.getElementById('createDealForm');
+    if (createDealForm) {
+        createDealForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const amount = document.getElementById('dealAmount').value;
+            const description = document.getElementById('dealDescription').value;
+            const paymentMethod = document.getElementById('dealPaymentMethod').value;
+            
+            if (!amount || amount <= 0) {
+                app.showToast('Введите корректную сумму', 'error');
+                return;
+            }
+            
+            if (!description.trim()) {
+                app.showToast('Введите описание сделки', 'error');
+                return;
+            }
+            
+            const result = await app.createDeal(amount, description, paymentMethod);
+            if (result) {
+                createDealForm.reset();
+            }
+        });
+    }
+
+    // Обработчик формы создания тикета
+    const newTicketForm = document.getElementById('newTicketForm');
+    if (newTicketForm) {
+        newTicketForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const subject = document.getElementById('ticketSubject').value;
+            const message = document.getElementById('ticketMessage').value;
+            
+            if (!subject.trim() || !message.trim()) {
+                app.showToast('Заполните все поля', 'error');
+                return;
+            }
+            
+            const success = await app.createTicket(subject, message);
+            if (success) {
+                newTicketForm.reset();
+                hideCreateTicket();
+            }
+        });
+    }
+
+    // Показываем тестовые данные для отладки
+    showDebugInfo();
 });
 
-document.getElementById('createDealForm').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const amount = parseFloat(document.getElementById('dealAmount').value);
-    const description = document.getElementById('dealDescription').value;
-    const paymentMethod = document.getElementById('dealPaymentMethod').value;
-    
-    if (amount <= 0) {
-        app.showToast('Сумма должна быть больше 0', 'error');
-        return;
+// Функция для отображения отладочной информации
+function showDebugInfo() {
+    // Добавляем информацию об API в форму входа
+    const loginForm = document.getElementById('loginForm');
+    if (loginForm) {
+        const debugInfo = document.createElement('div');
+        debugInfo.className = 'mt-3 p-2 bg-light rounded small';
+        debugInfo.innerHTML = `
+            <div class="d-flex justify-content-between align-items-center">
+                <span>Статус API:</span>
+                <span class="badge ${app.isOnline ? 'bg-success' : 'bg-warning'}">
+                    ${app.isOnline ? 'онлайн' : 'офлайн'}
+                </span>
+            </div>
+            <div class="mt-1">
+                <small class="text-muted">URL: ${app.apiBase}</small>
+            </div>
+        `;
+        loginForm.appendChild(debugInfo);
     }
-    
-    if (!description.trim()) {
-        app.showToast('Введите описание сделки', 'error');
-        return;
-    }
-    
-    await app.createDeal(amount, description, paymentMethod);
-    document.getElementById('createDealForm').reset();
-    showSection('deals');
-});
-
-document.getElementById('newTicketForm').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const subject = document.getElementById('ticketSubject').value;
-    const message = document.getElementById('ticketMessage').value;
-    
-    if (!subject.trim() || !message.trim()) {
-        app.showToast('Заполните все поля', 'error');
-        return;
-    }
-    
-    const success = await app.createTicket(subject, message);
-    if (success) {
-        document.getElementById('newTicketForm').reset();
-        hideCreateTicket();
-    }
-});
+}
 
 // Проверка авторизации при загрузке
 window.addEventListener('load', () => {
     const token = localStorage.getItem('magante_token');
-    if (token) {
-        try {
-            // В реальном приложении здесь будет проверка токена через API
-            const tokenData = JSON.parse(atob(token));
-            const testUser = Object.values(app.api.users)[0]; // Берем первого пользователя для демо
-            if (testUser) {
-                app.currentUser = testUser;
-                app.token = token;
-                app.showDashboard();
-            }
-        } catch (e) {
-            localStorage.removeItem('magante_token');
-        }
+    if (token && app.currentUser) {
+        app.showDashboard();
     }
     
-    // Показать тестовые данные для демонстрации
-    console.log('Тестовый логин:', 'testuser');
-    console.log('Тестовый пароль:', 'testpass123');
+    // Периодическая проверка статуса API
+    setInterval(() => {
+        app.checkAPIStatus();
+    }, 30000); // Каждые 30 секунд
 });
+
+// Глобальные функции для отладки
+window.debugApp = function() {
+    console.log('=== DEBUG INFO ===');
+    console.log('Current User:', app.currentUser);
+    console.log('Token:', app.token ? 'Present' : 'Missing');
+    console.log('API Online:', app.isOnline);
+    console.log('API Base:', app.apiBase);
+    console.log('Local Storage Token:', localStorage.getItem('magante_token'));
+    console.log('==================');
+};
