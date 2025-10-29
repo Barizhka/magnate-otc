@@ -158,7 +158,7 @@ class MaganteOTC {
                 this.showToast('✅ Сделка создана!', 'success');
                 document.getElementById('createDealForm').reset();
                 // Переключаемся на список сделок и обновляем
-                this.showSection('deals');
+                this.showSection('dealsSection');
                 return data;
             } else {
                 throw new Error(data.error || 'Ошибка при создании сделки');
@@ -462,15 +462,13 @@ class MaganteOTC {
     showSection(sectionName) {
         console.log('📁 Переключение на раздел:', sectionName);
         
-        // Скрываем все основные разделы
-        const sections = ['deals', 'createDeal', 'tickets', 'profile', 'admin'];
+        // Скрываем все основные разделы (с суффиксом Section)
+        const sections = ['dealsSection', 'createDealSection', 'ticketsSection', 'profileSection', 'adminSection'];
         sections.forEach(section => {
             const element = document.getElementById(section);
             if (element) {
                 element.style.display = 'none';
                 console.log('✅ Скрыт раздел:', section);
-            } else {
-                console.log('❌ Раздел не найден:', section);
             }
         });
 
@@ -482,7 +480,7 @@ class MaganteOTC {
         
         // Показываем список тикетов по умолчанию
         const ticketsList = document.getElementById('ticketsList');
-        if (ticketsList && sectionName !== 'createTicket') {
+        if (ticketsList) {
             ticketsList.style.display = 'block';
         }
 
@@ -496,23 +494,25 @@ class MaganteOTC {
         }
 
         // Обновляем активные кнопки в навигации
-        const navLinks = document.querySelectorAll('.nav-link, .list-group-item');
+        const navLinks = document.querySelectorAll('.list-group-item');
         navLinks.forEach(link => {
             link.classList.remove('active');
-            if (link.getAttribute('onclick')?.includes(sectionName)) {
+            // Сравниваем без учета регистра и суффиксов
+            const linkOnClick = link.getAttribute('onclick') || '';
+            if (linkOnClick.includes(sectionName.replace('Section', ''))) {
                 link.classList.add('active');
             }
         });
 
         // Загружаем данные при переключении
         switch(sectionName) {
-            case 'deals':
+            case 'dealsSection':
                 this.loadUserDeals();
                 break;
-            case 'tickets':
+            case 'ticketsSection':
                 this.loadUserTickets();
                 break;
-            case 'profile':
+            case 'profileSection':
                 this.loadProfile();
                 break;
         }
@@ -639,10 +639,16 @@ class MaganteOTC {
     }
 }
 
-// Глобальные функции
+// Глобальные функции - ОБНОВЛЕНЫ для работы с правильными ID
 function showSection(sectionName) {
+    // Добавляем суффикс Section к именам разделов
+    let actualSectionName = sectionName;
+    if (!sectionName.endsWith('Section')) {
+        actualSectionName = sectionName + 'Section';
+    }
+    
     if (window.maganteOTC) {
-        window.maganteOTC.showSection(sectionName);
+        window.maganteOTC.showSection(actualSectionName);
     } else {
         console.error('MaganteOTC не инициализирован');
     }
