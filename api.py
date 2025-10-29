@@ -5,6 +5,7 @@ import jwt
 import datetime
 import os
 import logging
+import uuid
 
 # Настройка логирования
 logging.basicConfig(level=logging.INFO)
@@ -61,6 +62,18 @@ def init_db():
             )
         ''')
         
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS tickets (
+                id TEXT PRIMARY KEY,
+                user_id INTEGER,
+                subject TEXT NOT NULL,
+                message TEXT NOT NULL,
+                status TEXT DEFAULT 'open',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users (user_id)
+            )
+        ''')
+        
         # Создаем тестового пользователя при инициализации
         try:
             cursor.execute('''
@@ -90,7 +103,7 @@ def home():
         "version": "1.0"
     })
 
-@app.route('/api/health')
+@app.route('/api/health', methods=['GET'])
 def health_check():
     try:
         conn = get_db_connection()
@@ -182,9 +195,12 @@ def check_users():
         logger.error(f"❌ Ошибка проверки пользователей: {e}")
         return jsonify({'error': str(e)}), 500
 
-@app.route('/api/login', methods=['POST'])
+@app.route('/api/login', methods=['POST', 'OPTIONS'])
 def login():
     """Авторизация пользователя"""
+    if request.method == 'OPTIONS':
+        return '', 200
+        
     try:
         data = request.get_json()
         if not data:
@@ -239,9 +255,12 @@ def login():
         logger.error(f"❌ Ошибка входа: {str(e)}")
         return jsonify({'error': 'Internal server error'}), 500
 
-@app.route('/api/deals', methods=['POST'])
+@app.route('/api/deals', methods=['POST', 'OPTIONS'])
 def create_deal():
     """Создание новой сделки"""
+    if request.method == 'OPTIONS':
+        return '', 200
+        
     try:
         # Проверка авторизации
         token = request.headers.get('Authorization', '')
@@ -398,6 +417,107 @@ def get_profile():
         logger.error(f"❌ Ошибка получения профиля: {str(e)}")
         return jsonify({'error': 'Internal server error'}), 500
 
+@app.route('/api/tickets', methods=['POST', 'OPTIONS'])
+def create_ticket():
+    """Создание тикета"""
+    if request.method == 'OPTIONS':
+        return '', 200
+        
+    try:
+        # Проверка авторизации
+        token = request.headers.get('Authorization', '')
+        if not token.startswith('Bearer '):
+            return jsonify({'error': 'Token required'}), 401
+            
+        token = token.replace('Bearer ', '')
+        
+        try:
+            payload = jwt.decode(token, app.config['SECRET_KEY'], algorithms=['HS256'])
+            user_id = payload['user_id']
+        except jwt.ExpiredSignatureError:
+            return jsonify({'error': 'Token expired'}), 401
+        except jwt.InvalidTokenError:
+            return jsonify({'error': 'Invalid token'}), 401
+        
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+            
+        subject = data.get('subject')
+        message = data.get('message')
+        
+        if not subject or not message:
+            return jsonify({'error': 'Subject and message required'}), 400
+        
+        ticket_id = f"ticket_{uuid.uuid4().hex[:8]}"
+        
+        conn = get_db_connection()
+        conn.execute('''
+            INSERT INTO tickets (id, user_id, subject, message, status)
+            VALUES (?, ?, ?, ?, ?)
+        ''', (ticket_id, user_id, subject, message, 'open'))
+        conn.commit()
+        conn.close()
+        
+        logger.info(f"✅ Тикет создан: {ticket_id} пользователем: {user_id}")
+        
+        return jsonify({
+            'id': ticket_id,
+            'subject': subject,
+            'message': message,
+            'status': 'open',
+            'created_at': datetime.datetime.now().isoformat(),
+            'message': 'Тикет успешно создан'
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ Ошибка создания тикета: {str(e)}")
+        return jsonify({'error': 'Internal server error'}), 500
+
+@app.route('/api/tickets/my', methods=['GET'])
+def get_user_tickets():
+    """Получение тикетов пользователя"""
+    try:
+        # Проверка авторизации
+        token = request.headers.get('Authorization', '')
+        if not token.startswith('Bearer '):
+            return jsonify({'error': 'Token required'}), 401
+            
+        token = token.replace('Bearer ', '')
+        
+        try:
+            payload = jwt.decode(token, app.config['SECRET_KEY'], algorithms=['HS256'])
+            user_id = payload['user_id']
+        except jwt.ExpiredSignatureError:
+            return jsonify({'error': 'Token expired'}), 401
+        except jwt.InvalidTokenError:
+            return jsonify({'error': 'Invalid token'}), 401
+        
+        conn = get_db_connection()
+        tickets = conn.execute('''
+            SELECT * FROM tickets 
+            WHERE user_id = ?
+            ORDER BY created_at DESC
+        ''', (user_id,)).fetchall()
+        conn.close()
+        
+        tickets_list = []
+        for ticket in tickets:
+            tickets_list.append({
+                'id': ticket['id'],
+                'subject': ticket['subject'],
+                'message': ticket['message'],
+                'status': ticket['status'],
+                'created_at': ticket['created_at']
+            })
+        
+        logger.info(f"📊 Загружено {len(tickets_list)} тикетов для пользователя {user_id}")
+        return jsonify(tickets_list)
+        
+    except Exception as e:
+        logger.error(f"❌ Ошибка получения тикетов: {str(e)}")
+        return jsonify({'error': 'Internal server error'}), 500
+
 @app.route('/api/sync-from-bot', methods=['POST'])
 def sync_from_bot():
     """Синхронизация данных из бота"""
@@ -466,6 +586,7 @@ def reset_database():
         # Удаляем все таблицы
         conn.execute('DROP TABLE IF EXISTS users')
         conn.execute('DROP TABLE IF EXISTS deals')
+        conn.execute('DROP TABLE IF EXISTS tickets')
         
         # Пересоздаем таблицы
         conn.execute('''
@@ -496,6 +617,18 @@ def reset_database():
                 payment_method TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 source TEXT DEFAULT 'bot'
+            )
+        ''')
+        
+        conn.execute('''
+            CREATE TABLE tickets (
+                id TEXT PRIMARY KEY,
+                user_id INTEGER,
+                subject TEXT NOT NULL,
+                message TEXT NOT NULL,
+                status TEXT DEFAULT 'open',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users (user_id)
             )
         ''')
         
