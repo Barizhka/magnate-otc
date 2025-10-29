@@ -126,7 +126,7 @@ class MaganteOTC {
             this.showToast(error.message, 'error');
             return false;
         } finally {
-            this.showLoading(false);
+            this.showLoading(false); // ВАЖНО: убираем загрузку в finally
         }
     }
 
@@ -155,7 +155,7 @@ class MaganteOTC {
             console.log('📦 Данные сделки:', data);
 
             if (response.ok) {
-                this.showToast('✅ Сделка создана!', 'success');
+                this.showToast('✅ Сделка создана! Ссылка отправлена в Telegram бот.', 'success');
                 document.getElementById('createDealForm').reset();
                 // Переключаемся на список сделок и обновляем
                 this.showSection('dealsSection');
@@ -168,7 +168,7 @@ class MaganteOTC {
             this.showToast(error.message, 'error');
             return null;
         } finally {
-            this.showLoading(false);
+            this.showLoading(false); // ВАЖНО: убираем загрузку
         }
     }
 
@@ -256,7 +256,7 @@ class MaganteOTC {
             this.showToast(error.message, 'error');
             return false;
         } finally {
-            this.showLoading(false);
+            this.showLoading(false); // ВАЖНО: убираем загрузку
         }
     }
 
@@ -306,46 +306,61 @@ class MaganteOTC {
             return;
         }
 
-        container.innerHTML = deals.map(deal => `
-            <div class="col-md-6 mb-4">
-                <div class="card feature-card h-100">
-                    <div class="card-body">
-                        <div class="d-flex justify-content-between align-items-start mb-3">
-                            <h5 class="card-title mb-0">
-                                <i class="fas fa-exchange-alt me-2"></i>
-                                Сделка #${deal.id?.slice(-8) || 'N/A'}
-                            </h5>
-                            <span class="badge bg-${this.getStatusColor(deal.status)}">
-                                ${this.getStatusText(deal.status)}
-                            </span>
-                        </div>
-                        <p class="card-text">${deal.description || 'Описание отсутствует'}</p>
-                        <div class="deal-info">
-                            <div class="row small">
-                                <div class="col-6">
-                                    <strong>Сумма:</strong><br>
-                                    <span class="fw-bold">${deal.amount} ${this.getPaymentMethodText(deal.payment_method)}</span>
-                                </div>
-                                <div class="col-6">
-                                    <strong>Статус:</strong><br>
-                                    <span class="badge bg-${this.getStatusColor(deal.status)}">${this.getStatusText(deal.status)}</span>
-                                </div>
+        container.innerHTML = deals.map(deal => {
+            const dealLink = `https://t.me/magnate_otc_bot?start=${deal.id}`;
+            return `
+                <div class="col-md-6 mb-4">
+                    <div class="card feature-card h-100">
+                        <div class="card-body">
+                            <div class="d-flex justify-content-between align-items-start mb-3">
+                                <h5 class="card-title mb-0">
+                                    <i class="fas fa-exchange-alt me-2"></i>
+                                    Сделка #${deal.id?.slice(-8) || 'N/A'}
+                                </h5>
+                                <span class="badge bg-${this.getStatusColor(deal.status)}">
+                                    ${this.getStatusText(deal.status)}
+                                </span>
                             </div>
-                            <div class="row small mt-2">
-                                <div class="col-6">
-                                    <strong>Создана:</strong><br>
-                                    ${new Date(deal.created_at).toLocaleDateString('ru-RU')}
+                            <p class="card-text">${deal.description || 'Описание отсутствует'}</p>
+                            <div class="deal-info">
+                                <div class="row small">
+                                    <div class="col-6">
+                                        <strong>Сумма:</strong><br>
+                                        <span class="fw-bold">${deal.amount} ${this.getPaymentMethodText(deal.payment_method)}</span>
+                                    </div>
+                                    <div class="col-6">
+                                        <strong>Статус:</strong><br>
+                                        <span class="badge bg-${this.getStatusColor(deal.status)}">${this.getStatusText(deal.status)}</span>
+                                    </div>
                                 </div>
-                                <div class="col-6">
-                                    <strong>ID:</strong><br>
-                                    <code class="small">${deal.id?.slice(-12) || 'N/A'}</code>
+                                <div class="row small mt-2">
+                                    <div class="col-6">
+                                        <strong>Создана:</strong><br>
+                                        ${new Date(deal.created_at).toLocaleDateString('ru-RU')}
+                                    </div>
+                                    <div class="col-6">
+                                        <strong>ID:</strong><br>
+                                        <code class="small">${deal.id?.slice(-12) || 'N/A'}</code>
+                                    </div>
                                 </div>
+                                ${deal.status === 'active' ? `
+                                    <div class="mt-3">
+                                        <strong>🔗 Ссылка для покупателя:</strong>
+                                        <div class="input-group input-group-sm mt-1">
+                                            <input type="text" class="form-control" value="${dealLink}" readonly>
+                                            <button class="btn btn-outline-secondary" type="button" onclick="copyToClipboard('${dealLink}')">
+                                                <i class="fas fa-copy"></i>
+                                            </button>
+                                        </div>
+                                        <small class="text-muted">Отправьте эту ссылку покупателю</small>
+                                    </div>
+                                ` : ''}
                             </div>
                         </div>
                     </div>
                 </div>
-            </div>
-        `).join('');
+            `;
+        }).join('');
     }
 
     displayTickets(tickets) {
@@ -412,7 +427,7 @@ class MaganteOTC {
                             <p><strong>Сделки:</strong> ${profile.successful_deals}</p>
                         </div>
                         <div class="col-md-6">
-                            <p><strong>Статус:</strong> ${profile.is_admin ? 'Админ' : 'Пользователь'}</p>
+                            <p><strong>Статус:</strong> ${profile.is_admin ? '<span class="badge bg-danger">Администратор</span>' : '<span class="badge bg-secondary">Пользователь</span>'}</p>
                             <p><strong>TON кошелек:</strong> ${profile.ton_wallet || 'Не указан'}</p>
                             <p><strong>Карта:</strong> ${profile.card_details || 'Не указана'}</p>
                         </div>
@@ -442,6 +457,12 @@ class MaganteOTC {
         // Обновляем навигацию
         document.getElementById('loginNav').style.display = 'none';
         document.getElementById('logoutNav').style.display = 'block';
+        
+        // Показываем админ-панель если пользователь админ
+        if (this.currentUser && this.currentUser.is_admin) {
+            const adminLink = document.getElementById('adminLink');
+            if (adminLink) adminLink.style.display = 'block';
+        }
         
         // Загружаем начальные данные
         this.loadUserDeals();
@@ -474,9 +495,7 @@ class MaganteOTC {
 
         // Скрываем форму создания тикета если она открыта
         const createTicketForm = document.getElementById('createTicketForm');
-        if (createTicketForm) {
-            createTicketForm.style.display = 'none';
-        }
+        if (createTicketForm) createTicketForm.style.display = 'none';
         
         // Показываем список тикетов по умолчанию
         const ticketsList = document.getElementById('ticketsList');
@@ -681,6 +700,17 @@ function loadUserDeals() {
     if (window.maganteOTC) {
         window.maganteOTC.loadUserDeals();
     }
+}
+
+// Функция для копирования ссылки сделки
+function copyToClipboard(text) {
+    navigator.clipboard.writeText(text).then(() => {
+        if (window.maganteOTC) {
+            window.maganteOTC.showToast('Ссылка скопирована в буфер обмена!', 'success');
+        }
+    }).catch(err => {
+        console.error('Ошибка копирования: ', err);
+    });
 }
 
 // Инициализация
