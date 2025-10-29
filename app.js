@@ -3,22 +3,28 @@ class MaganteOTC {
         this.apiBase = 'https://magnate-otc-2.onrender.com';
         this.currentUser = null;
         this.token = localStorage.getItem('magante_token');
-        this.isOnline = false;
+        this.isOnline = true; // Устанавливаем true по умолчанию после успешного входа
         
         this.init();
     }
 
     async init() {
+        console.log('🔧 Инициализация Magante OTC...');
+        
         // Проверяем авторизацию при загрузке
         if (this.token) {
+            console.log('🔑 Найден токен, проверяем валидность...');
             await this.validateToken();
         } else {
+            console.log('🔑 Токен не найден, проверяем статус API...');
             await this.checkAPIStatus();
         }
         this.setupEventListeners();
     }
 
     setupEventListeners() {
+        console.log('🔧 Настройка обработчиков событий...');
+        
         // Логин форма
         const loginForm = document.getElementById('loginForm');
         if (loginForm) {
@@ -26,6 +32,7 @@ class MaganteOTC {
                 e.preventDefault();
                 const login = document.getElementById('login').value;
                 const password = document.getElementById('password').value;
+                console.log('🔐 Попытка входа:', login);
                 this.login(login, password);
             });
         }
@@ -38,6 +45,7 @@ class MaganteOTC {
                 const amount = document.getElementById('dealAmount').value;
                 const description = document.getElementById('dealDescription').value;
                 const paymentMethod = document.getElementById('dealPaymentMethod').value;
+                console.log('💼 Создание сделки:', { amount, description, paymentMethod });
                 this.createDeal(amount, description, paymentMethod);
             });
         }
@@ -49,6 +57,7 @@ class MaganteOTC {
                 e.preventDefault();
                 const subject = document.getElementById('ticketSubject').value;
                 const message = document.getElementById('ticketMessage').value;
+                console.log('🎫 Создание тикета:', { subject, message });
                 this.createTicket(subject, message);
             });
         }
@@ -62,9 +71,9 @@ class MaganteOTC {
 
     async checkAPIStatus() {
         try {
-            console.log('Checking API status...');
+            console.log('🌐 Проверка статуса API...');
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 10000);
+            const timeoutId = setTimeout(() => controller.abort(), 5000);
             
             const response = await fetch(`${this.apiBase}/api/health`, {
                 method: 'GET',
@@ -77,19 +86,18 @@ class MaganteOTC {
             clearTimeout(timeoutId);
             
             if (response.ok) {
-                const data = await response.json();
                 this.isOnline = true;
                 this.showAPIStatus();
-                console.log('API is online');
+                console.log('✅ API онлайн');
                 return true;
             } else {
                 this.isOnline = false;
                 this.showAPIStatus();
-                console.log('API response not OK');
+                console.log('❌ API ответ не OK');
                 return false;
             }
         } catch (error) {
-            console.error('API check failed:', error);
+            console.error('❌ Ошибка проверки API:', error);
             this.isOnline = false;
             this.showAPIStatus();
             return false;
@@ -98,6 +106,7 @@ class MaganteOTC {
 
     async validateToken() {
         try {
+            console.log('🔐 Проверка токена...');
             const response = await fetch(`${this.apiBase}/api/profile`, {
                 headers: {
                     'Authorization': `Bearer ${this.token}`,
@@ -108,20 +117,22 @@ class MaganteOTC {
             if (response.ok) {
                 const profile = await response.json();
                 this.currentUser = profile;
-                this.isOnline = true;
+                this.isOnline = true; // API работает, устанавливаем true
                 this.showDashboard();
                 this.showToast('✅ Автоматический вход выполнен', 'success');
+                console.log('✅ Токен валиден, пользователь:', profile.username);
                 return true;
             } else {
                 // Токен невалидный
+                console.log('❌ Токен невалиден');
                 localStorage.removeItem('magante_token');
                 this.token = null;
                 this.currentUser = null;
-                this.checkAPIStatus();
+                await this.checkAPIStatus();
                 return false;
             }
         } catch (error) {
-            console.error('Token validation failed:', error);
+            console.error('❌ Ошибка проверки токена:', error);
             this.isOnline = false;
             this.showAPIStatus();
             return false;
@@ -143,15 +154,15 @@ class MaganteOTC {
         try {
             this.showLoading(true);
             
-            if (!this.isOnline) {
-                throw new Error('Сервер временно недоступен. Попробуйте позже.');
-            }
+            // После успешного входа API точно онлайн
+            this.isOnline = true;
+            this.showAPIStatus();
 
             const response = await fetch(`${this.apiBase}/api/login`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                'Accept': 'application/json'
+                    'Accept': 'application/json'
                 },
                 body: JSON.stringify({ 
                     login: login.trim(),
@@ -165,13 +176,16 @@ class MaganteOTC {
                 this.currentUser = data.user;
                 this.token = data.token;
                 localStorage.setItem('magante_token', this.token);
+                this.isOnline = true; // Убедимся что статус онлайн
                 this.showDashboard();
                 this.showToast('✅ Успешный вход! Добро пожаловать в Magante OTC!', 'success');
+                console.log('✅ Успешный вход, пользователь:', data.user.username);
                 return true;
             } else {
                 throw new Error(data.error || 'Ошибка входа');
             }
         } catch (error) {
+            console.error('❌ Ошибка входа:', error);
             this.showToast(error.message, 'error');
             return false;
         } finally {
@@ -181,11 +195,11 @@ class MaganteOTC {
 
     async createDeal(amount, description, paymentMethod) {
         try {
-            this.showLoading(true);
-
             if (!this.token) {
                 throw new Error('Требуется авторизация');
             }
+
+            this.showLoading(true);
 
             const response = await fetch(`${this.apiBase}/api/deals`, {
                 method: 'POST',
@@ -205,14 +219,16 @@ class MaganteOTC {
 
             if (response.ok) {
                 this.showToast('✅ Сделка создана успешно!', 'success');
-                this.loadUserDeals();
+                await this.loadUserDeals(); // Ждем загрузку сделок
                 // Очищаем форму
                 document.getElementById('dealForm').reset();
+                console.log('✅ Сделка создана:', data.id);
                 return data;
             } else {
                 throw new Error(data.error || 'Ошибка при создании сделки');
             }
         } catch (error) {
+            console.error('❌ Ошибка создания сделки:', error);
             this.showToast(error.message, 'error');
             return null;
         } finally {
@@ -223,9 +239,11 @@ class MaganteOTC {
     async loadUserDeals() {
         try {
             if (!this.token) {
+                console.log('❌ Нет токена для загрузки сделок');
                 return;
             }
 
+            console.log('📊 Загрузка сделок пользователя...');
             const response = await fetch(`${this.apiBase}/api/deals/my`, {
                 headers: {
                     'Authorization': `Bearer ${this.token}`,
@@ -236,11 +254,12 @@ class MaganteOTC {
             if (response.ok) {
                 const deals = await response.json();
                 this.displayDeals(deals);
+                console.log('✅ Сделки загружены:', deals.length, 'шт');
             } else {
                 throw new Error('Ошибка загрузки сделок');
             }
         } catch (error) {
-            console.error('Error loading deals:', error);
+            console.error('❌ Ошибка загрузки сделок:', error);
             this.showToast('Ошибка загрузки сделок', 'error');
             this.displayDeals([]);
         }
@@ -249,9 +268,11 @@ class MaganteOTC {
     async loadProfile() {
         try {
             if (!this.token) {
+                console.log('❌ Нет токена для загрузки профиля');
                 return;
             }
 
+            console.log('👤 Загрузка профиля...');
             const response = await fetch(`${this.apiBase}/api/profile`, {
                 headers: {
                     'Authorization': `Bearer ${this.token}`,
@@ -263,20 +284,23 @@ class MaganteOTC {
                 const profile = await response.json();
                 this.displayProfile(profile);
                 this.updateUserBalance(profile.balance);
+                console.log('✅ Профиль загружен:', profile.username);
+            } else {
+                console.log('❌ Ошибка загрузки профиля');
             }
         } catch (error) {
-            console.error('Profile load error:', error);
+            console.error('❌ Ошибка загрузки профиля:', error);
             this.displayProfile(this.currentUser);
         }
     }
 
     async createTicket(subject, message) {
         try {
-            this.showLoading(true);
-
             if (!this.token) {
                 throw new Error('Требуется авторизация');
             }
+
+            this.showLoading(true);
 
             const response = await fetch(`${this.apiBase}/api/tickets`, {
                 method: 'POST',
@@ -295,15 +319,17 @@ class MaganteOTC {
 
             if (response.ok) {
                 this.showToast('✅ Тикет создан успешно! Мы ответим вам в ближайшее время.', 'success');
-                this.loadUserTickets();
+                await this.loadUserTickets(); // Ждем загрузку тикетов
                 // Очищаем форму и скрываем
                 document.getElementById('newTicketForm').reset();
                 this.hideCreateTicket();
+                console.log('✅ Тикет создан:', data.id);
                 return data;
             } else {
                 throw new Error(data.error || 'Ошибка при создании тикета');
             }
         } catch (error) {
+            console.error('❌ Ошибка создания тикета:', error);
             this.showToast(error.message, 'error');
             return false;
         } finally {
@@ -314,9 +340,11 @@ class MaganteOTC {
     async loadUserTickets() {
         try {
             if (!this.token) {
+                console.log('❌ Нет токена для загрузки тикетов');
                 return;
             }
 
+            console.log('🎫 Загрузка тикетов пользователя...');
             const response = await fetch(`${this.apiBase}/api/tickets/my`, {
                 headers: {
                     'Authorization': `Bearer ${this.token}`,
@@ -327,11 +355,12 @@ class MaganteOTC {
             if (response.ok) {
                 const tickets = await response.json();
                 this.displayTickets(tickets);
+                console.log('✅ Тикеты загружены:', tickets.length, 'шт');
             } else {
                 throw new Error('Ошибка загрузки тикетов');
             }
         } catch (error) {
-            console.error('Error loading tickets:', error);
+            console.error('❌ Ошибка загрузки тикетов:', error);
             this.showToast('Ошибка загрузки тикетов', 'error');
             this.displayTickets([]);
         }
@@ -339,7 +368,10 @@ class MaganteOTC {
 
     displayDeals(deals) {
         const container = document.getElementById('dealsList');
-        if (!container) return;
+        if (!container) {
+            console.log('❌ Контейнер dealsList не найден');
+            return;
+        }
 
         if (!deals || deals.length === 0) {
             container.innerHTML = `
@@ -351,6 +383,7 @@ class MaganteOTC {
                     </div>
                 </div>
             `;
+            console.log('ℹ️ Нет сделок для отображения');
             return;
         }
 
@@ -411,11 +444,16 @@ class MaganteOTC {
                 </div>
             `;
         }).join('');
+        
+        console.log('✅ Сделки отображены:', deals.length, 'шт');
     }
 
     displayTickets(tickets) {
         const container = document.getElementById('ticketsList');
-        if (!container) return;
+        if (!container) {
+            console.log('❌ Контейнер ticketsList не найден');
+            return;
+        }
 
         if (!tickets || tickets.length === 0) {
             container.innerHTML = `
@@ -425,6 +463,7 @@ class MaganteOTC {
                     <p class="text-muted mb-0">Создайте первый тикет для обращения в поддержку</p>
                 </div>
             `;
+            console.log('ℹ️ Нет тикетов для отображения');
             return;
         }
 
@@ -457,11 +496,16 @@ class MaganteOTC {
                 </div>
             `;
         }).join('');
+        
+        console.log('✅ Тикеты отображены:', tickets.length, 'шт');
     }
 
     displayProfile(profile) {
         const container = document.getElementById('profileInfo');
-        if (!container) return;
+        if (!container) {
+            console.log('❌ Контейнер profileInfo не найден');
+            return;
+        }
 
         if (!profile) {
             container.innerHTML = `
@@ -534,15 +578,183 @@ class MaganteOTC {
                 </div>
             </div>
         `;
+        
+        console.log('✅ Профиль отображен');
     }
 
     updateUserBalance(balance) {
         const balanceElement = document.getElementById('userBalance');
         if (balanceElement) {
             balanceElement.textContent = `Баланс: ${balance} RUB`;
+            console.log('✅ Баланс обновлен:', balance);
         }
     }
 
+    showDashboard() {
+        console.log('🏠 Показ дашборда...');
+        
+        // Скрываем главный экран и форму входа
+        document.querySelector('.hero-section').style.display = 'none';
+        document.getElementById('loginSection').style.display = 'none';
+        
+        // Показываем дашборд
+        document.getElementById('dashboard').style.display = 'block';
+        
+        // Обновляем навигацию
+        document.getElementById('loginNav').style.display = 'none';
+        document.getElementById('logoutNav').style.display = 'block';
+        
+        // Показываем админ-панель если пользователь админ
+        if (this.currentUser && this.currentUser.is_admin) {
+            const adminLink = document.getElementById('adminLink');
+            if (adminLink) adminLink.style.display = 'block';
+        }
+        
+        // Загружаем данные
+        this.loadUserDeals();
+        this.loadUserTickets();
+        this.loadProfile();
+        
+        // Показываем раздел сделок по умолчанию
+        this.showSection('dealsSection');
+        
+        console.log('✅ Дашборд показан');
+    }
+
+    showSection(sectionName) {
+        console.log('📁 Переключение на раздел:', sectionName);
+        
+        // Скрываем все разделы
+        const sections = ['dealsSection', 'createDealSection', 'ticketsSection', 'createTicketForm', 'profileSection', 'adminSection'];
+        sections.forEach(section => {
+            const element = document.getElementById(section);
+            if (element) element.style.display = 'none';
+        });
+
+        // Показываем выбранный раздел
+        const targetSection = document.getElementById(sectionName);
+        if (targetSection) {
+            targetSection.style.display = 'block';
+            console.log('✅ Раздел показан:', sectionName);
+        } else {
+            console.log('❌ Раздел не найден:', sectionName);
+        }
+
+        // Обновляем активное состояние в навигации
+        const navLinks = document.querySelectorAll('.list-group-item');
+        navLinks.forEach(link => {
+            link.classList.remove('active');
+            if (link.getAttribute('onclick')?.includes(sectionName)) {
+                link.classList.add('active');
+            }
+        });
+
+        // Загружаем данные если нужно
+        if (sectionName === 'dealsSection') {
+            this.loadUserDeals();
+        } else if (sectionName === 'ticketsSection') {
+            this.loadUserTickets();
+        } else if (sectionName === 'profileSection') {
+            this.loadProfile();
+        }
+    }
+
+    showCreateTicket() {
+        console.log('📝 Показ формы создания тикета');
+        document.getElementById('ticketsList').style.display = 'none';
+        document.getElementById('createTicketForm').style.display = 'block';
+    }
+
+    hideCreateTicket() {
+        console.log('📝 Скрытие формы создания тикета');
+        document.getElementById('ticketsList').style.display = 'block';
+        document.getElementById('createTicketForm').style.display = 'none';
+    }
+
+    showLoading(show) {
+        const loader = document.getElementById('loadingOverlay');
+        if (loader) {
+            loader.style.display = show ? 'flex' : 'none';
+            console.log(show ? '🔄 Показать загрузку' : '✅ Скрыть загрузку');
+        }
+    }
+
+    showToast(message, type = 'info') {
+        console.log('📢 Toast:', type, message);
+        
+        const toastContainer = document.getElementById('toastContainer') || (() => {
+            const container = document.createElement('div');
+            container.id = 'toastContainer';
+            container.className = 'toast-container position-fixed top-0 end-0 p-3';
+            document.body.appendChild(container);
+            return container;
+        })();
+
+        const toastId = 'toast-' + Date.now();
+        const icon = {
+            'success': 'fa-check-circle',
+            'error': 'fa-exclamation-circle',
+            'warning': 'fa-exclamation-triangle',
+            'info': 'fa-info-circle'
+        }[type] || 'fa-info-circle';
+
+        const bgClass = {
+            'success': 'bg-success',
+            'error': 'bg-danger',
+            'warning': 'bg-warning',
+            'info': 'bg-info'
+        }[type] || 'bg-info';
+
+        const toastHtml = `
+            <div id="${toastId}" class="toast ${bgClass} text-white" role="alert">
+                <div class="toast-header ${bgClass} text-white">
+                    <i class="fas ${icon} me-2"></i>
+                    <strong class="me-auto">${this.getToastTitle(type)}</strong>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="toast"></button>
+                </div>
+                <div class="toast-body">
+                    ${message}
+                </div>
+            </div>
+        `;
+
+        toastContainer.insertAdjacentHTML('beforeend', toastHtml);
+        
+        const toastElement = document.getElementById(toastId);
+        const toast = new bootstrap.Toast(toastElement, { delay: 5000 });
+        toast.show();
+
+        toastElement.addEventListener('hidden.bs.toast', () => {
+            toastElement.remove();
+        });
+    }
+
+    getToastTitle(type) {
+        const titles = {
+            'success': 'Успех',
+            'error': 'Ошибка',
+            'info': 'Информация',
+            'warning': 'Предупреждение'
+        };
+        return titles[type] || 'Уведомление';
+    }
+
+    logout() {
+        console.log('🚪 Выход из системы...');
+        this.currentUser = null;
+        this.token = null;
+        localStorage.removeItem('magante_token');
+        
+        document.getElementById('dashboard').style.display = 'none';
+        document.getElementById('loginNav').style.display = 'block';
+        document.getElementById('logoutNav').style.display = 'none';
+        document.querySelector('.hero-section').style.display = 'block';
+        
+        this.showToast('Вы вышли из системы', 'info');
+        console.log('✅ Выход выполнен');
+    }
+
+    // Вспомогательные методы
     getStatusClass(status) {
         const classes = {
             'completed': 'deal-completed',
@@ -602,147 +814,6 @@ class MaganteOTC {
         return colors[status] || 'secondary';
     }
 
-    showDashboard() {
-        document.querySelector('.hero-section').style.display = 'none';
-        document.getElementById('loginSection').style.display = 'none';
-        document.getElementById('dashboard').style.display = 'block';
-        document.getElementById('loginNav').style.display = 'none';
-        document.getElementById('logoutNav').style.display = 'block';
-        
-        // Загружаем данные
-        this.loadUserDeals();
-        this.loadUserTickets();
-        this.loadProfile();
-        
-        // Показываем админ-панель если пользователь админ
-        if (this.currentUser && this.currentUser.is_admin) {
-            const adminLink = document.getElementById('adminLink');
-            if (adminLink) adminLink.style.display = 'block';
-        }
-        
-        // Показываем раздел сделок по умолчанию
-        this.showSection('deals');
-    }
-
-    showSection(sectionName) {
-        // Скрываем все разделы
-        const sections = ['dealsSection', 'createDealSection', 'ticketsSection', 'createTicketForm', 'profileSection', 'adminSection'];
-        sections.forEach(section => {
-            const element = document.getElementById(section);
-            if (element) element.style.display = 'none';
-        });
-
-        // Показываем выбранный раздел
-        const targetSection = document.getElementById(sectionName);
-        if (targetSection) targetSection.style.display = 'block';
-
-        // Обновляем активное состояние в навигации
-        const navLinks = document.querySelectorAll('.list-group-item');
-        navLinks.forEach(link => {
-            link.classList.remove('active');
-            if (link.getAttribute('onclick')?.includes(sectionName)) {
-                link.classList.add('active');
-            }
-        });
-
-        // Загружаем данные если нужно
-        if (sectionName === 'dealsSection') {
-            this.loadUserDeals();
-        } else if (sectionName === 'ticketsSection') {
-            this.loadUserTickets();
-        } else if (sectionName === 'profileSection') {
-            this.loadProfile();
-        }
-    }
-
-    showCreateTicket() {
-        document.getElementById('ticketsList').style.display = 'none';
-        document.getElementById('createTicketForm').style.display = 'block';
-    }
-
-    hideCreateTicket() {
-        document.getElementById('ticketsList').style.display = 'block';
-        document.getElementById('createTicketForm').style.display = 'none';
-    }
-
-    showLoading(show) {
-        const loader = document.getElementById('loadingOverlay');
-        if (loader) {
-            loader.style.display = show ? 'flex' : 'none';
-        }
-    }
-
-    showToast(message, type = 'info') {
-        const toastContainer = document.getElementById('toastContainer') || (() => {
-            const container = document.createElement('div');
-            container.id = 'toastContainer';
-            container.className = 'toast-container position-fixed top-0 end-0 p-3';
-            document.body.appendChild(container);
-            return container;
-        })();
-
-        const toastId = 'toast-' + Date.now();
-        const icon = {
-            'success': 'fa-check-circle',
-            'error': 'fa-exclamation-circle',
-            'warning': 'fa-exclamation-triangle',
-            'info': 'fa-info-circle'
-        }[type] || 'fa-info-circle';
-
-        const bgClass = {
-            'success': 'bg-success',
-            'error': 'bg-danger',
-            'warning': 'bg-warning',
-            'info': 'bg-info'
-        }[type] || 'bg-info';
-
-        const toastHtml = `
-            <div id="${toastId}" class="toast ${bgClass} text-white" role="alert">
-                <div class="toast-header ${bgClass} text-white">
-                    <i class="fas ${icon} me-2"></i>
-                    <strong class="me-auto">${this.getToastTitle(type)}</strong>
-                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="toast"></button>
-                </div>
-                <div class="toast-body">
-                    ${message}
-                </div>
-            </div>
-        `;
-
-        toastContainer.insertAdjacentHTML('beforeend', toastHtml);
-        
-        const toastElement = document.getElementById(toastId);
-        const toast = new bootstrap.Toast(toastElement, { delay: 5000 });
-        toast.show();
-
-        toastElement.addEventListener('hidden.bs.toast', () => {
-            toastElement.remove();
-        });
-    }
-
-    getToastTitle(type) {
-        const titles = {
-            'success': 'Успех',
-            'error': 'Ошибка',
-            'info': 'Информация',
-            'warning': 'Предупреждение'
-        };
-        return titles[type] || 'Уведомление';
-    }
-
-    logout() {
-        this.currentUser = null;
-        this.token = null;
-        localStorage.removeItem('magante_token');
-        
-        document.getElementById('dashboard').style.display = 'none';
-        document.getElementById('loginNav').style.display = 'block';
-        document.getElementById('logoutNav').style.display = 'none';
-        document.querySelector('.hero-section').style.display = 'block';
-        
-        this.showToast('Вы вышли из системы', 'info');
-    }
-
     // Админ функции
     async loadAllDeals() {
         this.showToast('Функционал админ-панели находится в разработке', 'info');
@@ -761,10 +832,13 @@ class MaganteOTC {
 function showSection(sectionName) {
     if (window.maganteOTC) {
         window.maganteOTC.showSection(sectionName);
+    } else {
+        console.error('❌ MaganteOTC не инициализирован');
     }
 }
 
 function showLogin() {
+    console.log('🔐 Показ формы входа');
     document.querySelector('.hero-section').style.display = 'none';
     document.getElementById('loginSection').style.display = 'block';
     document.getElementById('dashboard').style.display = 'none';
@@ -773,28 +847,37 @@ function showLogin() {
 function logout() {
     if (window.maganteOTC) {
         window.maganteOTC.logout();
+    } else {
+        console.error('❌ MaganteOTC не инициализирован');
     }
 }
 
 function showCreateTicket() {
     if (window.maganteOTC) {
         window.maganteOTC.showCreateTicket();
+    } else {
+        console.error('❌ MaganteOTC не инициализирован');
     }
 }
 
 function hideCreateTicket() {
     if (window.maganteOTC) {
         window.maganteOTC.hideCreateTicket();
+    } else {
+        console.error('❌ MaganteOTC не инициализирован');
     }
 }
 
 function loadUserDeals() {
     if (window.maganteOTC) {
         window.maganteOTC.loadUserDeals();
+    } else {
+        console.error('❌ MaganteOTC не инициализирован');
     }
 }
 
 // Инициализация при загрузке страницы
 document.addEventListener('DOMContentLoaded', function() {
+    console.log('🚀 Загрузка DOM завершена, инициализация MaganteOTC...');
     window.maganteOTC = new MaganteOTC();
 });
