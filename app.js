@@ -9,34 +9,36 @@ class MaganteOTC {
     }
 
     async checkAPIStatus() {
-        try {
-            const response = await fetch(`${this.apiBase}/api/health`);
-            if (response.ok) {
-                this.isOnline = true;
-                console.log('✅ API подключен');
-                this.showAPIStatus();
-            } else {
-                this.isOnline = false;
-                console.warn('⚠️ API недоступен');
-                this.showAPIStatus();
-            }
-        } catch (error) {
+    try {
+        // Простая проверка - пытаемся получить главную страницу
+        const response = await fetch(this.apiBase, {
+            method: 'GET',
+            timeout: 5000
+        });
+        
+        if (response.status === 200) {
+            this.isOnline = true;
+            this.showAPIStatus();
+        } else {
             this.isOnline = false;
-            console.error('❌ Ошибка подключения к API:', error);
             this.showAPIStatus();
         }
+    } catch (error) {
+        this.isOnline = false;
+        this.showAPIStatus();
     }
+}
 
-    showAPIStatus() {
-        const statusElement = document.getElementById('apiStatus');
-        if (statusElement) {
-            if (this.isOnline) {
-                statusElement.innerHTML = '<span class="badge bg-success"><i class="fas fa-check me-1"></i>API онлайн</span>';
-            } else {
-                statusElement.innerHTML = '<span class="badge bg-warning"><i class="fas fa-exclamation-triangle me-1"></i>API офлайн</span>';
-            }
+showAPIStatus() {
+    const statusElement = document.getElementById('apiStatus');
+    if (statusElement) {
+        if (this.isOnline) {
+            statusElement.innerHTML = '<span class="badge bg-success"><i class="fas fa-check me-1"></i>API онлайн</span>';
+        } else {
+            statusElement.innerHTML = '<span class="badge bg-warning"><i class="fas fa-exclamation-triangle me-1"></i>API офлайн</span>';
         }
     }
+}
 
     async login(login, password) {
         try {
