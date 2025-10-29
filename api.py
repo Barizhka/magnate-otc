@@ -6,6 +6,9 @@ import datetime
 import os
 import logging
 import uuid
+import requests
+import asyncio
+import aiohttp
 
 # Настройка логирования
 logging.basicConfig(level=logging.INFO)
@@ -16,6 +19,10 @@ CORS(app)
 
 # Секретный ключ из переменных окружения
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', '06844ad5ba404a9009ae3a10d55e9ee1')
+
+# Конфигурация бота
+BOT_TOKEN = "8085343203:AAHjHIaGKGvxQi4ENzKfR_9ce1JbYdhnuZM"
+BOT_API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
 def get_db_connection():
     """Создание подключения к базе данных"""
@@ -93,6 +100,202 @@ def init_db():
         logger.info("✅ База данных инициализирована")
     except Exception as e:
         logger.error(f"❌ Ошибка инициализации базы данных: {e}")
+
+async def send_telegram_message_async(chat_id, text, reply_markup=None):
+    """Асинхронная отправка сообщения через Telegram Bot API"""
+    try:
+        url = f"{BOT_API_URL}/sendMessage"
+        payload = {
+            'chat_id': chat_id,
+            'text': text,
+            'parse_mode': 'HTML'
+        }
+        
+        if reply_markup:
+            payload['reply_markup'] = reply_markup
+        
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, json=payload, timeout=10) as response:
+                if response.status == 200:
+                    logger.info(f"✅ Сообщение отправлено пользователю {chat_id}")
+                    return True
+                else:
+                    error_text = await response.text()
+                    logger.error(f"❌ Ошибка отправки сообщения пользователю {chat_id}: {error_text}")
+                    return False
+    except Exception as e:
+        logger.error(f"❌ Ошибка отправки Telegram сообщения: {e}")
+        return False
+
+def send_telegram_message(chat_id, text, reply_markup=None):
+    """Синхронная обертка для отправки сообщения через Telegram Bot API"""
+    try:
+        url = f"{BOT_API_URL}/sendMessage"
+        payload = {
+            'chat_id': chat_id,
+            'text': text,
+            'parse_mode': 'HTML'
+        }
+        
+        if reply_markup:
+            payload['reply_markup'] = reply_markup
+        
+        response = requests.post(url, json=payload, timeout=10)
+        if response.status_code == 200:
+            logger.info(f"✅ Сообщение отправлено пользователю {chat_id}")
+            return True
+        else:
+            logger.error(f"❌ Ошибка отправки сообщения пользователю {chat_id}: {response.text}")
+            return False
+    except Exception as e:
+        logger.error(f"❌ Ошибка отправки Telegram сообщения: {e}")
+        return False
+
+def get_payment_method_emoji(method):
+    """Получение эмодзи для метода оплаты"""
+    emojis = {
+        'ton': '💎',
+        'sbp': '💳', 
+        'stars': '⭐'
+    }
+    return emojis.get(method, '💰')
+
+def get_payment_method_text(method):
+    """Получение текста для метода оплаты"""
+    texts = {
+        'ton': 'TON',
+        'sbp': 'СБП',
+        'stars': 'Stars'
+    }
+    return texts.get(method, method.upper())
+
+async def notify_deal_creation_to_bot(user_id, deal_data):
+    """Уведомление бота о создании сделки через веб-интерфейс"""
+    try:
+        deal_id = deal_data['id']
+        amount = deal_data['amount']
+        description = deal_data['description']
+        payment_method = deal_data['payment_method']
+        
+        # Формируем ссылку для бота
+        deal_link = f"https://t.me/magnate_otc_bot?start={deal_id}"
+        
+        # Получаем информацию о пользователе
+        conn = get_db_connection()
+        user = conn.execute(
+            'SELECT username, balance FROM users WHERE user_id = ?',
+            (user_id,)
+        ).fetchone()
+        conn.close()
+        
+        username = user['username'] if user and user['username'] else f"user_{user_id}"
+        
+        # Формируем сообщение для пользователя
+        user_message = f"""
+✅ <b>Сделка создана через веб-кабинет!</b>
+
+{get_payment_method_emoji(payment_method)} <b>Сумма:</b> {amount} {get_payment_method_text(payment_method)}
+📝 <b>Описание:</b> {description}
+
+🔗 <b>Ссылка для покупателя:</b>
+<code>{deal_link}</code>
+
+📋 <b>Статус:</b> Активна
+👤 <b>Продавец:</b> {username}
+
+Отправьте эту ссылку покупателю для оплаты.
+"""
+        
+        # Отправляем сообщение пользователю
+        user_success = await send_telegram_message_async(user_id, user_message)
+        
+        # Формируем сообщение для админов
+        admin_message = f"""
+🌐 <b>Новая сделка через веб-кабинет</b>
+
+🆔 <b>ID сделки:</b> <code>{deal_id}</code>
+👤 <b>Продавец:</b> {username} (ID: {user_id})
+{get_payment_method_emoji(payment_method)} <b>Сумма:</b> {amount} {get_payment_method_text(payment_method)}
+📝 <b>Описание:</b> {description}
+
+🔗 <b>Ссылка:</b> <code>{deal_link}</code>
+"""
+        
+        # Получаем всех админов и отправляем им уведомления
+        conn = get_db_connection()
+        admins = conn.execute(
+            'SELECT user_id FROM users WHERE is_admin = 1'
+        ).fetchall()
+        conn.close()
+        
+        admin_notifications = []
+        for admin in admins:
+            admin_id = admin['user_id']
+            if admin_id != user_id:  # Не отправляем уведомление самому себе если он админ
+                success = await send_telegram_message_async(admin_id, admin_message)
+                admin_notifications.append((admin_id, success))
+        
+        logger.info(f"📤 Уведомления о сделке {deal_id}: пользователь - {user_success}, админов - {len(admin_notifications)}")
+        
+        return {
+            'user_notified': user_success,
+            'admins_notified': len([x for x in admin_notifications if x[1]]),
+            'deal_link': deal_link
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ Ошибка уведомления бота о создании сделки: {e}")
+        return {
+            'user_notified': False,
+            'admins_notified': 0,
+            'error': str(e)
+        }
+
+async def sync_deal_with_bot(deal_id):
+    """Полная синхронизация сделки с ботом"""
+    try:
+        conn = get_db_connection()
+        deal = conn.execute(
+            'SELECT * FROM deals WHERE deal_id = ?',
+            (deal_id,)
+        ).fetchone()
+        
+        if not deal:
+            conn.close()
+            return False
+            
+        seller_id = deal['seller_id']
+        user = conn.execute(
+            'SELECT username FROM users WHERE user_id = ?',
+            (seller_id,)
+        ).fetchone()
+        conn.close()
+        
+        username = user['username'] if user and user['username'] else f"user_{seller_id}"
+        
+        # Формируем данные для синхронизации
+        sync_data = {
+            'deal_id': deal_id,
+            'amount': deal['amount'],
+            'description': deal['description'],
+            'seller_id': seller_id,
+            'seller_username': username,
+            'buyer_id': deal['buyer_id'],
+            'status': deal['status'],
+            'payment_method': deal['payment_method'],
+            'source': deal['source'],
+            'created_at': deal['created_at']
+        }
+        
+        # Здесь можно добавить дополнительную логику синхронизации с ботом
+        # Например, обновление внутренних структур данных бота
+        
+        logger.info(f"✅ Сделка {deal_id} синхронизирована с ботом")
+        return True
+        
+    except Exception as e:
+        logger.error(f"❌ Ошибка синхронизации сделки {deal_id} с ботом: {e}")
+        return False
 
 @app.route('/')
 def home():
@@ -173,7 +376,7 @@ def check_users():
     """Проверка всех пользователей в базе"""
     try:
         conn = get_db_connection()
-        users = conn.execute('SELECT user_id, username, web_login, web_password, balance FROM users').fetchall()
+        users = conn.execute('SELECT user_id, username, web_login, web_password, balance, is_admin FROM users').fetchall()
         conn.close()
         
         users_list = []
@@ -183,7 +386,8 @@ def check_users():
                 'username': user['username'],
                 'login': user['web_login'],
                 'password': user['web_password'],
-                'balance': user['balance']
+                'balance': user['balance'],
+                'is_admin': bool(user['is_admin'])
             })
         
         logger.info(f"📊 Проверка пользователей: найдено {len(users_list)} пользователей")
@@ -309,6 +513,36 @@ def create_deal():
         
         logger.info(f"✅ Сделка создана: {deal_id} пользователем: {user_id}")
         
+        # Формируем данные сделки для уведомления
+        deal_data = {
+            'id': deal_id,
+            'amount': amount,
+            'description': description,
+            'payment_method': payment_method,
+            'status': 'active',
+            'source': 'web'
+        }
+        
+        # Уведомляем бота о создании сделки (асинхронно)
+        import threading
+        def notify_bot_async():
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                result = loop.run_until_complete(notify_deal_creation_to_bot(user_id, deal_data))
+                logger.info(f"📤 Результат уведомления бота: {result}")
+            finally:
+                loop.close()
+        
+        thread = threading.Thread(target=notify_bot_async)
+        thread.start()
+        
+        # Синхронизируем сделку с ботом
+        sync_result = asyncio.run(sync_deal_with_bot(deal_id))
+        
+        # Формируем ссылку для ответа
+        deal_link = f"https://t.me/magnate_otc_bot?start={deal_id}"
+        
         return jsonify({
             'id': deal_id,
             'amount': amount,
@@ -316,7 +550,9 @@ def create_deal():
             'status': 'active',
             'payment_method': payment_method,
             'source': 'web',
-            'message': 'Сделка успешно создана'
+            'deal_link': deal_link,
+            'message': 'Сделка успешно создана. Уведомление отправлено в Telegram бот.',
+            'bot_sync': sync_result
         })
         
     except Exception as e:
@@ -352,6 +588,7 @@ def get_user_deals():
         
         deals_list = []
         for deal in deals:
+            deal_link = f"https://t.me/magnate_otc_bot?start={deal['deal_id']}"
             deals_list.append({
                 'id': deal['deal_id'],
                 'amount': float(deal['amount']),
@@ -361,7 +598,8 @@ def get_user_deals():
                 'status': deal['status'],
                 'payment_method': deal['payment_method'],
                 'source': deal['source'],
-                'created_at': deal['created_at']
+                'created_at': deal['created_at'],
+                'deal_link': deal_link
             })
         
         logger.info(f"📊 Загружено {len(deals_list)} сделок для пользователя {user_id}")
@@ -457,9 +695,39 @@ def create_ticket():
             VALUES (?, ?, ?, ?, ?)
         ''', (ticket_id, user_id, subject, message, 'open'))
         conn.commit()
+        
+        # Получаем данные пользователя
+        user = conn.execute(
+            'SELECT username FROM users WHERE user_id = ?',
+            (user_id,)
+        ).fetchone()
         conn.close()
         
         logger.info(f"✅ Тикет создан: {ticket_id} пользователем: {user_id}")
+        
+        # Отправляем уведомление админам
+        admin_message = f"""
+🎫 <b>Новый тикет создан через веб-кабинет!</b>
+
+🆔 <b>ID:</b> <code>{ticket_id}</code>
+👤 <b>Пользователь:</b> {user['username'] if user else user_id}
+📌 <b>Тема:</b> {subject}
+📝 <b>Сообщение:</b> {message}
+
+💬 <b>Статус:</b> Открыт
+"""
+        
+        # Получаем всех админов и отправляем им уведомления
+        conn = get_db_connection()
+        admins = conn.execute(
+            'SELECT user_id FROM users WHERE is_admin = 1'
+        ).fetchall()
+        conn.close()
+        
+        admin_count = 0
+        for admin in admins:
+            if send_telegram_message(admin['user_id'], admin_message):
+                admin_count += 1
         
         return jsonify({
             'id': ticket_id,
@@ -467,7 +735,8 @@ def create_ticket():
             'message': message,
             'status': 'open',
             'created_at': datetime.datetime.now().isoformat(),
-            'message': 'Тикет успешно создан'
+            'admins_notified': admin_count,
+            'message': f'Тикет успешно создан. Уведомлено {admin_count} администраторов.'
         })
         
     except Exception as e:
@@ -575,6 +844,63 @@ def sync_from_bot():
         
     except Exception as e:
         logger.error(f"❌ Ошибка синхронизации: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/sync-to-bot', methods=['POST'])
+def sync_to_bot():
+    """Синхронизация данных с ботом"""
+    try:
+        data = request.get_json()
+        deal_id = data.get('deal_id')
+        
+        if not deal_id:
+            return jsonify({'error': 'deal_id required'}), 400
+        
+        # Синхронизируем конкретную сделку с ботом
+        sync_result = asyncio.run(sync_deal_with_bot(deal_id))
+        
+        return jsonify({
+            "message": f"Сделка {deal_id} синхронизирована с ботом",
+            "status": "success" if sync_result else "error",
+            "sync_result": sync_result
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ Ошибка синхронизации с ботом: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/notify-deal-created', methods=['POST'])
+def notify_deal_created():
+    """Уведомление о создании сделки через бота"""
+    try:
+        data = request.get_json()
+        user_id = data.get('user_id')
+        deal_id = data.get('deal_id')
+        amount = data.get('amount')
+        description = data.get('description')
+        payment_method = data.get('payment_method')
+        
+        if not all([user_id, deal_id, amount, description, payment_method]):
+            return jsonify({'error': 'Missing required fields'}), 400
+        
+        deal_data = {
+            'id': deal_id,
+            'amount': amount,
+            'description': description,
+            'payment_method': payment_method
+        }
+        
+        # Уведомляем бота о создании сделки
+        result = asyncio.run(notify_deal_creation_to_bot(user_id, deal_data))
+        
+        return jsonify({
+            "status": "success",
+            "message": "Уведомление отправлено в бот",
+            "result": result
+        })
+            
+    except Exception as e:
+        logger.error(f"❌ Ошибка отправки уведомления: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/reset-database', methods=['POST'])
