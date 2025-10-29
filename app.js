@@ -5,40 +5,139 @@ class MaganteOTC {
         this.token = localStorage.getItem('magante_token');
         this.isOnline = false;
         
-        this.checkAPIStatus();
+        this.init();
+    }
+
+    async init() {
+        // Проверяем авторизацию при загрузке
+        if (this.token) {
+            await this.validateToken();
+        } else {
+            await this.checkAPIStatus();
+        }
+        this.setupEventListeners();
+    }
+
+    setupEventListeners() {
+        // Логин форма
+        const loginForm = document.getElementById('loginForm');
+        if (loginForm) {
+            loginForm.addEventListener('submit', (e) => {
+                e.preventDefault();
+                const login = document.getElementById('login').value;
+                const password = document.getElementById('password').value;
+                this.login(login, password);
+            });
+        }
+
+        // Создание сделки
+        const dealForm = document.getElementById('dealForm');
+        if (dealForm) {
+            dealForm.addEventListener('submit', (e) => {
+                e.preventDefault();
+                const amount = document.getElementById('amount').value;
+                const description = document.getElementById('description').value;
+                const paymentMethod = document.getElementById('paymentMethod').value;
+                this.createDeal(amount, description, paymentMethod);
+            });
+        }
+
+        // Создание тикета
+        const ticketForm = document.getElementById('ticketForm');
+        if (ticketForm) {
+            ticketForm.addEventListener('submit', (e) => {
+                e.preventDefault();
+                const subject = document.getElementById('ticketSubject').value;
+                const message = document.getElementById('ticketMessage').value;
+                this.createTicket(subject, message);
+            });
+        }
+
+        // Выход
+        const logoutBtn = document.getElementById('logoutBtn');
+        if (logoutBtn) {
+            logoutBtn.addEventListener('click', () => this.logout());
+        }
     }
 
     async checkAPIStatus() {
-    try {
-        // Простая проверка - пытаемся получить главную страницу
-        const response = await fetch(this.apiBase, {
-            method: 'GET',
-            timeout: 5000
-        });
-        
-        if (response.status === 200) {
-            this.isOnline = true;
-            this.showAPIStatus();
-        } else {
+        try {
+            console.log('Checking API status...');
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 10000);
+            
+            const response = await fetch(`${this.apiBase}/api/health`, {
+                method: 'GET',
+                signal: controller.signal,
+                headers: {
+                    'Accept': 'application/json',
+                }
+            });
+            
+            clearTimeout(timeoutId);
+            
+            if (response.ok) {
+                const data = await response.json();
+                this.isOnline = true;
+                this.showAPIStatus();
+                console.log('API is online');
+                return true;
+            } else {
+                this.isOnline = false;
+                this.showAPIStatus();
+                console.log('API response not OK');
+                return false;
+            }
+        } catch (error) {
+            console.error('API check failed:', error);
             this.isOnline = false;
             this.showAPIStatus();
+            return false;
         }
-    } catch (error) {
-        this.isOnline = false;
-        this.showAPIStatus();
     }
-}
 
-showAPIStatus() {
-    const statusElement = document.getElementById('apiStatus');
-    if (statusElement) {
-        if (this.isOnline) {
-            statusElement.innerHTML = '<span class="badge bg-success"><i class="fas fa-check me-1"></i>API онлайн</span>';
-        } else {
-            statusElement.innerHTML = '<span class="badge bg-warning"><i class="fas fa-exclamation-triangle me-1"></i>API офлайн</span>';
+    async validateToken() {
+        try {
+            const response = await fetch(`${this.apiBase}/api/profile`, {
+                headers: {
+                    'Authorization': `Bearer ${this.token}`,
+                    'Accept': 'application/json'
+                }
+            });
+
+            if (response.ok) {
+                const profile = await response.json();
+                this.currentUser = profile;
+                this.isOnline = true;
+                this.showDashboard();
+                this.showToast('✅ Автоматический вход выполнен', 'success');
+                return true;
+            } else {
+                // Токен невалидный
+                localStorage.removeItem('magante_token');
+                this.token = null;
+                this.currentUser = null;
+                this.checkAPIStatus();
+                return false;
+            }
+        } catch (error) {
+            console.error('Token validation failed:', error);
+            this.isOnline = false;
+            this.showAPIStatus();
+            return false;
         }
     }
-}
+
+    showAPIStatus() {
+        const statusElement = document.getElementById('apiStatus');
+        if (statusElement) {
+            if (this.isOnline) {
+                statusElement.innerHTML = '<span class="badge bg-success"><i class="fas fa-check me-1"></i>API онлайн</span>';
+            } else {
+                statusElement.innerHTML = '<span class="badge bg-warning"><i class="fas fa-exclamation-triangle me-1"></i>API офлайн</span>';
+            }
+        }
+    }
 
     async login(login, password) {
         try {
@@ -105,6 +204,8 @@ showAPIStatus() {
             if (response.ok) {
                 this.showToast('✅ Сделка создана успешно!', 'success');
                 this.loadUserDeals();
+                // Очищаем форму
+                document.getElementById('dealForm').reset();
                 return data;
             } else {
                 throw new Error(data.error || 'Ошибка при создании сделки');
@@ -119,15 +220,14 @@ showAPIStatus() {
 
     async loadUserDeals() {
         try {
-            this.showLoading(true);
-
             if (!this.token) {
-                throw new Error('Требуется авторизация');
+                return;
             }
 
             const response = await fetch(`${this.apiBase}/api/deals/my`, {
                 headers: {
-                    'Authorization': `Bearer ${this.token}`
+                    'Authorization': `Bearer ${this.token}`,
+                    'Accept': 'application/json'
                 }
             });
 
@@ -138,10 +238,9 @@ showAPIStatus() {
                 throw new Error('Ошибка загрузки сделок');
             }
         } catch (error) {
+            console.error('Error loading deals:', error);
             this.showToast('Ошибка загрузки сделок', 'error');
             this.displayDeals([]);
-        } finally {
-            this.showLoading(false);
         }
     }
 
@@ -153,7 +252,8 @@ showAPIStatus() {
 
             const response = await fetch(`${this.apiBase}/api/profile`, {
                 headers: {
-                    'Authorization': `Bearer ${this.token}`
+                    'Authorization': `Bearer ${this.token}`,
+                    'Accept': 'application/json'
                 }
             });
 
@@ -172,25 +272,35 @@ showAPIStatus() {
         try {
             this.showLoading(true);
 
-            // Временная реализация - сохранение в localStorage
-            const tickets = JSON.parse(localStorage.getItem('user_tickets')) || [];
-            const newTicket = {
-                id: 'ticket_' + Date.now(),
-                subject: subject,
-                message: message,
-                status: 'open',
-                created_at: new Date().toISOString(),
-                user_id: this.currentUser.user_id
-            };
-            
-            tickets.push(newTicket);
-            localStorage.setItem('user_tickets', JSON.stringify(tickets));
-            
-            this.showToast('✅ Тикет создан успешно! Мы ответим вам в ближайшее время.', 'success');
-            this.loadUserTickets();
-            return true;
+            if (!this.token) {
+                throw new Error('Требуется авторизация');
+            }
+
+            const response = await fetch(`${this.apiBase}/api/tickets`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${this.token}`
+                },
+                body: JSON.stringify({
+                    subject: subject.trim(),
+                    message: message.trim()
+                })
+            });
+
+            const data = await response.json();
+
+            if (response.ok) {
+                this.showToast('✅ Тикет создан успешно! Мы ответим вам в ближайшее время.', 'success');
+                this.loadUserTickets();
+                // Очищаем форму
+                document.getElementById('ticketForm').reset();
+                return data;
+            } else {
+                throw new Error(data.error || 'Ошибка при создании тикета');
+            }
         } catch (error) {
-            this.showToast('Ошибка при создании тикета', 'error');
+            this.showToast(error.message, 'error');
             return false;
         } finally {
             this.showLoading(false);
@@ -199,11 +309,25 @@ showAPIStatus() {
 
     async loadUserTickets() {
         try {
-            // Временная реализация - загрузка из localStorage
-            const tickets = JSON.parse(localStorage.getItem('user_tickets')) || [];
-            const userTickets = tickets.filter(ticket => ticket.user_id === this.currentUser.user_id);
-            this.displayTickets(userTickets);
+            if (!this.token) {
+                return;
+            }
+
+            const response = await fetch(`${this.apiBase}/api/tickets/my`, {
+                headers: {
+                    'Authorization': `Bearer ${this.token}`,
+                    'Accept': 'application/json'
+                }
+            });
+
+            if (response.ok) {
+                const tickets = await response.json();
+                this.displayTickets(tickets);
+            } else {
+                throw new Error('Ошибка загрузки тикетов');
+            }
         } catch (error) {
+            console.error('Error loading tickets:', error);
             this.showToast('Ошибка загрузки тикетов', 'error');
             this.displayTickets([]);
         }
@@ -211,6 +335,8 @@ showAPIStatus() {
 
     displayDeals(deals) {
         const container = document.getElementById('dealsList');
+        if (!container) return;
+
         if (!deals || deals.length === 0) {
             container.innerHTML = `
                 <div class="col-12">
@@ -239,7 +365,7 @@ showAPIStatus() {
                             <div class="d-flex justify-content-between align-items-start mb-3">
                                 <h5 class="card-title mb-0">
                                     <i class="fas fa-exchange-alt me-2"></i>
-                                    Сделка #${deal.id.slice(-8)}
+                                    Сделка #${deal.id ? deal.id.slice(-8) : 'N/A'}
                                 </h5>
                                 <div>
                                     <span class="badge bg-${statusColor} me-1">${statusText}</span>
@@ -247,7 +373,7 @@ showAPIStatus() {
                                 </div>
                             </div>
                             
-                            <p class="card-text flex-grow-1">${deal.description}</p>
+                            <p class="card-text flex-grow-1">${deal.description || 'Описание отсутствует'}</p>
                             
                             <div class="deal-info mt-auto">
                                 <div class="row small">
@@ -267,7 +393,7 @@ showAPIStatus() {
                                     </div>
                                     <div class="col-6">
                                         <strong class="text-muted">ID:</strong><br>
-                                        <code class="small">${deal.id.slice(-12)}</code>
+                                        <code class="small">${deal.id ? deal.id.slice(-12) : 'N/A'}</code>
                                     </div>
                                 </div>
                                 ${deal.buyer_id ? `
@@ -285,6 +411,8 @@ showAPIStatus() {
 
     displayTickets(tickets) {
         const container = document.getElementById('ticketsList');
+        if (!container) return;
+
         if (!tickets || tickets.length === 0) {
             container.innerHTML = `
                 <div class="alert alert-info text-center py-4">
@@ -308,7 +436,7 @@ showAPIStatus() {
                                 <i class="fas fa-ticket-alt me-2"></i>
                                 ${ticket.subject}
                             </h5>
-                            <span class="badge bg-${statusColor}">${ticket.status}</span>
+                            <span class="badge bg-${statusColor}">${this.getTicketStatusText(ticket.status)}</span>
                         </div>
                         <p class="card-text">${ticket.message}</p>
                         <div class="ticket-meta">
@@ -317,7 +445,7 @@ showAPIStatus() {
                                 Создан: ${createdDate}
                                 <span class="ms-3">
                                     <i class="fas fa-hashtag me-1"></i>
-                                    ID: ${ticket.id.slice(-8)}
+                                    ID: ${ticket.id ? ticket.id.slice(-8) : 'N/A'}
                                 </span>
                             </small>
                         </div>
@@ -329,6 +457,8 @@ showAPIStatus() {
 
     displayProfile(profile) {
         const container = document.getElementById('profileInfo');
+        if (!container) return;
+
         if (!profile) {
             container.innerHTML = `
                 <div class="alert alert-warning">
@@ -352,19 +482,19 @@ showAPIStatus() {
                         <div class="col-md-6">
                             <div class="mb-3">
                                 <label class="form-label text-muted small mb-1">ID пользователя</label>
-                                <p class="mb-0 fw-bold fs-5">${profile.user_id}</p>
+                                <p class="mb-0 fw-bold fs-5">${profile.user_id || profile.id || 'N/A'}</p>
                             </div>
                             <div class="mb-3">
                                 <label class="form-label text-muted small mb-1">Имя пользователя</label>
-                                <p class="mb-0 fw-bold">${profile.username}</p>
+                                <p class="mb-0 fw-bold">${profile.username || 'N/A'}</p>
                             </div>
                             <div class="mb-3">
                                 <label class="form-label text-muted small mb-1">Баланс</label>
-                                <p class="mb-0 fw-bold text-success fs-5">${profile.balance} RUB</p>
+                                <p class="mb-0 fw-bold text-success fs-5">${profile.balance || 0} RUB</p>
                             </div>
                             <div class="mb-3">
                                 <label class="form-label text-muted small mb-1">Успешные сделки</label>
-                                <p class="mb-0 fw-bold fs-5">${profile.successful_deals}</p>
+                                <p class="mb-0 fw-bold fs-5">${profile.successful_deals || 0}</p>
                             </div>
                         </div>
                         <div class="col-md-6">
@@ -430,6 +560,15 @@ showAPIStatus() {
         return texts[status] || status;
     }
 
+    getTicketStatusText(status) {
+        const texts = {
+            'open': 'Открыт',
+            'in_progress': 'В работе',
+            'closed': 'Закрыт'
+        };
+        return texts[status] || status;
+    }
+
     getPaymentMethodText(method) {
         const texts = {
             'ton': 'TON',
@@ -473,11 +612,43 @@ showAPIStatus() {
         
         // Показываем админ-панель если пользователь админ
         if (this.currentUser && this.currentUser.is_admin) {
-            document.getElementById('adminLink').style.display = 'block';
+            const adminLink = document.getElementById('adminLink');
+            if (adminLink) adminLink.style.display = 'block';
         }
         
-        // 🔥 ИСПРАВЛЕНИЕ: используем глобальную функцию showSection
-        showSection('deals');
+        // Показываем раздел сделок по умолчанию
+        this.showSection('deals');
+    }
+
+    showSection(sectionName) {
+        // Скрываем все разделы
+        const sections = ['deals', 'createDeal', 'tickets', 'createTicket', 'profile', 'admin'];
+        sections.forEach(section => {
+            const element = document.getElementById(section);
+            if (element) element.style.display = 'none';
+        });
+
+        // Показываем выбранный раздел
+        const targetSection = document.getElementById(sectionName);
+        if (targetSection) targetSection.style.display = 'block';
+
+        // Обновляем активное состояние в навигации
+        const navLinks = document.querySelectorAll('.nav-link');
+        navLinks.forEach(link => {
+            link.classList.remove('active');
+            if (link.getAttribute('onclick')?.includes(sectionName)) {
+                link.classList.add('active');
+            }
+        });
+
+        // Загружаем данные если нужно
+        if (sectionName === 'deals') {
+            this.loadUserDeals();
+        } else if (sectionName === 'tickets') {
+            this.loadUserTickets();
+        } else if (sectionName === 'profile') {
+            this.loadProfile();
+        }
     }
 
     showLoading(show) {
@@ -488,7 +659,6 @@ showAPIStatus() {
     }
 
     showToast(message, type = 'info') {
-        // Создаем красивый toast
         const toastContainer = document.getElementById('toastContainer') || (() => {
             const container = document.createElement('div');
             container.id = 'toastContainer';
@@ -572,3 +742,21 @@ showAPIStatus() {
         this.showToast('Функционал админ-панели находится в разработке', 'info');
     }
 }
+
+// Глобальные функции для onclick атрибутов
+function showSection(sectionName) {
+    if (window.maganteOTC) {
+        window.maganteOTC.showSection(sectionName);
+    }
+}
+
+function logout() {
+    if (window.maganteOTC) {
+        window.maganteOTC.logout();
+    }
+}
+
+// Инициализация при загрузке страницы
+document.addEventListener('DOMContentLoaded', function() {
+    window.maganteOTC = new MaganteOTC();
+});
