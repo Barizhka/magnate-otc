@@ -1,993 +1,747 @@
-from flask import Flask, request, jsonify
-from flask_cors import CORS
-import sqlite3
-import jwt
-import datetime
-import os
-import logging
-import uuid
-import requests
-import asyncio
-import aiohttp
-
-# Настройка логирования
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-app = Flask(__name__)
-CORS(app)
-
-# Секретный ключ из переменных окружения
-app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', '06844ad5ba404a9009ae3a10d55e9ee1')
-
-# Конфигурация бота
-BOT_TOKEN = "8085343203:AAHjHIaGKGvxQi4ENzKfR_9ce1JbYdhnuZM"
-BOT_API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
-
-def get_db_connection():
-    """Создание подключения к базе данных"""
-    db_path = os.path.join(os.path.dirname(__file__), 'bot_data.db')
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
-    return conn
-
-def init_db():
-    """Инициализация базы данных"""
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
+class MaganteOTC {
+    constructor() {
+        this.apiBase = 'https://magnate-otc-2.onrender.com';
+        this.currentUser = null;
+        this.token = localStorage.getItem('magante_token');
         
-        # Создаем таблицы если они не существуют
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS users (
-                user_id INTEGER PRIMARY KEY,
-                username TEXT,
-                ton_wallet TEXT,
-                card_details TEXT,
-                balance REAL DEFAULT 0.0,
-                successful_deals INTEGER DEFAULT 0,
-                lang TEXT DEFAULT 'ru',
-                granted_by INTEGER,
-                is_admin INTEGER DEFAULT 0,
-                web_login TEXT UNIQUE,
-                web_password TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        ''')
+        console.log('🚀 Magante OTC инициализирован');
         
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS deals (
-                deal_id TEXT PRIMARY KEY,
-                amount REAL,
-                description TEXT,
-                seller_id INTEGER,
-                buyer_id INTEGER,
-                status TEXT DEFAULT 'active',
-                payment_method TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                source TEXT DEFAULT 'bot'
-            )
-        ''')
-        
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS tickets (
-                id TEXT PRIMARY KEY,
-                user_id INTEGER,
-                subject TEXT NOT NULL,
-                message TEXT NOT NULL,
-                status TEXT DEFAULT 'open',
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (user_id) REFERENCES users (user_id)
-            )
-        ''')
-        
-        # Создаем тестового пользователя при инициализации
-        try:
-            cursor.execute('''
-                INSERT OR IGNORE INTO users 
-                (user_id, username, ton_wallet, card_details, balance, successful_deals, lang, is_admin, web_login, web_password)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (
-                123456789, 'test_user', 'UQTEST123456789', '5536913996855484', 
-                1000.0, 5, 'ru', 1, 'testuser', 'testpass123'
-            ))
-            logger.info("✅ Тестовый пользователь создан при инициализации")
-        except Exception as e:
-            logger.warning(f"Тестовый пользователь уже существует: {e}")
-        
-        conn.commit()
-        conn.close()
-        logger.info("✅ База данных инициализирована")
-    except Exception as e:
-        logger.error(f"❌ Ошибка инициализации базы данных: {e}")
-
-async def send_telegram_message_async(chat_id, text, reply_markup=None):
-    """Асинхронная отправка сообщения через Telegram Bot API"""
-    try:
-        url = f"{BOT_API_URL}/sendMessage"
-        payload = {
-            'chat_id': chat_id,
-            'text': text,
-            'parse_mode': 'HTML'
-        }
-        
-        if reply_markup:
-            payload['reply_markup'] = reply_markup
-        
-        async with aiohttp.ClientSession() as session:
-            async with session.post(url, json=payload, timeout=10) as response:
-                if response.status == 200:
-                    logger.info(f"✅ Сообщение отправлено пользователю {chat_id}")
-                    return True
-                else:
-                    error_text = await response.text()
-                    logger.error(f"❌ Ошибка отправки сообщения пользователю {chat_id}: {error_text}")
-                    return False
-    except Exception as e:
-        logger.error(f"❌ Ошибка отправки Telegram сообщения: {e}")
-        return False
-
-def send_telegram_message(chat_id, text, reply_markup=None):
-    """Синхронная обертка для отправки сообщения через Telegram Bot API"""
-    try:
-        url = f"{BOT_API_URL}/sendMessage"
-        payload = {
-            'chat_id': chat_id,
-            'text': text,
-            'parse_mode': 'HTML'
-        }
-        
-        if reply_markup:
-            payload['reply_markup'] = reply_markup
-        
-        response = requests.post(url, json=payload, timeout=10)
-        if response.status_code == 200:
-            logger.info(f"✅ Сообщение отправлено пользователю {chat_id}")
-            return True
-        else:
-            logger.error(f"❌ Ошибка отправки сообщения пользователю {chat_id}: {response.text}")
-            return False
-    except Exception as e:
-        logger.error(f"❌ Ошибка отправки Telegram сообщения: {e}")
-        return False
-
-def get_payment_method_emoji(method):
-    """Получение эмодзи для метода оплаты"""
-    emojis = {
-        'ton': '💎',
-        'sbp': '💳', 
-        'stars': '⭐'
+        this.init();
     }
-    return emojis.get(method, '💰')
 
-def get_payment_method_text(method):
-    """Получение текста для метода оплаты"""
-    texts = {
-        'ton': 'TON',
-        'sbp': 'СБП',
-        'stars': 'Stars'
+    async init() {
+        if (this.token) {
+            console.log('🔄 Попытка автоматического входа...');
+            const success = await this.validateToken();
+            if (!success) {
+                this.showLoginForm();
+            }
+        } else {
+            this.showLoginForm();
+        }
+        
+        this.setupEventListeners();
     }
-    return texts.get(method, method.upper())
 
-async def notify_deal_creation_to_bot(user_id, deal_data):
-    """Уведомление бота о создании сделки через веб-интерфейс"""
-    try:
-        deal_id = deal_data['id']
-        amount = deal_data['amount']
-        description = deal_data['description']
-        payment_method = deal_data['payment_method']
+    setupEventListeners() {
+        console.log('🔧 Настройка обработчиков событий...');
         
-        # Формируем ссылку для бота
-        deal_link = f"https://t.me/magnate_otc_bot?start={deal_id}"
-        
-        # Получаем информацию о пользователе
-        conn = get_db_connection()
-        user = conn.execute(
-            'SELECT username, balance FROM users WHERE user_id = ?',
-            (user_id,)
-        ).fetchone()
-        conn.close()
-        
-        username = user['username'] if user and user['username'] else f"user_{user_id}"
-        
-        # Формируем сообщение для пользователя
-        user_message = f"""
-✅ <b>Сделка создана через веб-кабинет!</b>
-
-{get_payment_method_emoji(payment_method)} <b>Сумма:</b> {amount} {get_payment_method_text(payment_method)}
-📝 <b>Описание:</b> {description}
-
-🔗 <b>Ссылка для покупателя:</b>
-<code>{deal_link}</code>
-
-📋 <b>Статус:</b> Активна
-👤 <b>Продавец:</b> {username}
-
-Отправьте эту ссылку покупателю для оплаты.
-"""
-        
-        # Отправляем сообщение пользователю
-        user_success = await send_telegram_message_async(user_id, user_message)
-        
-        # Формируем сообщение для админов
-        admin_message = f"""
-🌐 <b>Новая сделка через веб-кабинет</b>
-
-🆔 <b>ID сделки:</b> <code>{deal_id}</code>
-👤 <b>Продавец:</b> {username} (ID: {user_id})
-{get_payment_method_emoji(payment_method)} <b>Сумма:</b> {amount} {get_payment_method_text(payment_method)}
-📝 <b>Описание:</b> {description}
-
-🔗 <b>Ссылка:</b> <code>{deal_link}</code>
-"""
-        
-        # Получаем всех админов и отправляем им уведомления
-        conn = get_db_connection()
-        admins = conn.execute(
-            'SELECT user_id FROM users WHERE is_admin = 1'
-        ).fetchall()
-        conn.close()
-        
-        admin_notifications = []
-        for admin in admins:
-            admin_id = admin['user_id']
-            if admin_id != user_id:  # Не отправляем уведомление самому себе если он админ
-                success = await send_telegram_message_async(admin_id, admin_message)
-                admin_notifications.append((admin_id, success))
-        
-        logger.info(f"📤 Уведомления о сделке {deal_id}: пользователь - {user_success}, админов - {len(admin_notifications)}")
-        
-        return {
-            'user_notified': user_success,
-            'admins_notified': len([x for x in admin_notifications if x[1]]),
-            'deal_link': deal_link
-        }
-        
-    except Exception as e:
-        logger.error(f"❌ Ошибка уведомления бота о создании сделки: {e}")
-        return {
-            'user_notified': False,
-            'admins_notified': 0,
-            'error': str(e)
+        // Логин форма
+        const loginForm = document.getElementById('loginForm');
+        if (loginForm) {
+            loginForm.addEventListener('submit', (e) => {
+                e.preventDefault();
+                const login = document.getElementById('login').value;
+                const password = document.getElementById('password').value;
+                this.login(login, password);
+            });
         }
 
-async def sync_deal_with_bot(deal_id):
-    """Полная синхронизация сделки с ботом"""
-    try:
-        conn = get_db_connection()
-        deal = conn.execute(
-            'SELECT * FROM deals WHERE deal_id = ?',
-            (deal_id,)
-        ).fetchone()
-        
-        if not deal:
-            conn.close()
-            return False
-            
-        seller_id = deal['seller_id']
-        user = conn.execute(
-            'SELECT username FROM users WHERE user_id = ?',
-            (seller_id,)
-        ).fetchone()
-        conn.close()
-        
-        username = user['username'] if user and user['username'] else f"user_{seller_id}"
-        
-        # Формируем данные для синхронизации
-        sync_data = {
-            'deal_id': deal_id,
-            'amount': deal['amount'],
-            'description': deal['description'],
-            'seller_id': seller_id,
-            'seller_username': username,
-            'buyer_id': deal['buyer_id'],
-            'status': deal['status'],
-            'payment_method': deal['payment_method'],
-            'source': deal['source'],
-            'created_at': deal['created_at']
+        // Создание сделки
+        const dealForm = document.getElementById('createDealForm');
+        if (dealForm) {
+            dealForm.addEventListener('submit', (e) => {
+                e.preventDefault();
+                const amount = document.getElementById('dealAmount').value;
+                const description = document.getElementById('dealDescription').value;
+                const paymentMethod = document.getElementById('dealPaymentMethod').value;
+                this.createDeal(amount, description, paymentMethod);
+            });
         }
-        
-        # Здесь можно добавить дополнительную логику синхронизации с ботом
-        # Например, обновление внутренних структур данных бота
-        
-        logger.info(f"✅ Сделка {deal_id} синхронизирована с ботом")
-        return True
-        
-    except Exception as e:
-        logger.error(f"❌ Ошибка синхронизации сделки {deal_id} с ботом: {e}")
-        return False
 
-@app.route('/')
-def home():
-    return jsonify({
-        "message": "Magante OTC API is running", 
-        "status": "active",
-        "timestamp": datetime.datetime.now().isoformat(),
-        "version": "1.0"
-    })
+        // Создание тикета
+        const ticketForm = document.getElementById('newTicketForm');
+        if (ticketForm) {
+            ticketForm.addEventListener('submit', (e) => {
+                e.preventDefault();
+                const subject = document.getElementById('ticketSubject').value;
+                const message = document.getElementById('ticketMessage').value;
+                this.createTicket(subject, message);
+            });
+        }
+    }
 
-@app.route('/api/health', methods=['GET'])
-def health_check():
-    try:
-        conn = get_db_connection()
-        conn.execute('SELECT 1')
-        conn.close()
-        return jsonify({
-            "status": "healthy", 
-            "database": "connected",
-            "timestamp": datetime.datetime.now().isoformat()
-        })
-    except Exception as e:
-        return jsonify({
-            "status": "unhealthy", 
-            "database": "disconnected",
-            "error": str(e)
-        }), 500
+    async validateToken() {
+        try {
+            console.log('🔐 Проверка токена...');
+            const response = await fetch(`${this.apiBase}/api/profile`, {
+                headers: {
+                    'Authorization': `Bearer ${this.token}`,
+                    'Accept': 'application/json'
+                }
+            });
 
-@app.route('/api/create-test-user', methods=['POST'])
-def create_test_user():
-    """Гарантированное создание тестового пользователя"""
-    try:
-        conn = get_db_connection()
-        
-        # Удаляем если существует
-        conn.execute('DELETE FROM users WHERE user_id = 123456789 OR web_login = "testuser"')
-        
-        # Создаем заново
-        conn.execute('''
-            INSERT INTO users 
-            (user_id, username, ton_wallet, card_details, balance, successful_deals, lang, is_admin, web_login, web_password)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (
-            123456789, 'test_user', 'UQTEST123456789', '5536913996855484', 
-            1000.0, 5, 'ru', 1, 'testuser', 'testpass123'
-        ))
-        
-        conn.commit()
-        
-        # Проверяем создание
-        user = conn.execute(
-            'SELECT * FROM users WHERE web_login = "testuser" AND web_password = "testpass123"'
-        ).fetchone()
-        conn.close()
-        
-        if user:
-            logger.info("✅ Тестовый пользователь успешно создан через API")
-            return jsonify({
-                "status": "success",
-                "message": "✅ ТЕСТОВЫЙ ПОЛЬЗОВАТЕЛЬ УСПЕШНО СОЗДАН!",
-                "login": "testuser", 
-                "password": "testpass123",
-                "note": "Теперь можно входить на сайт https://barizhka.github.io/magnate-otc"
-            })
-        else:
-            logger.error("❌ Не удалось создать тестового пользователя")
-            return jsonify({
-                "status": "error", 
-                "message": "❌ Не удалось создать пользователя в базе данных"
-            }), 500
-            
-    except Exception as e:
-        logger.error(f"❌ Ошибка создания тестового пользователя: {e}")
-        return jsonify({'error': str(e)}), 500
-
-@app.route('/api/check-users', methods=['GET'])
-def check_users():
-    """Проверка всех пользователей в базе"""
-    try:
-        conn = get_db_connection()
-        users = conn.execute('SELECT user_id, username, web_login, web_password, balance, is_admin FROM users').fetchall()
-        conn.close()
-        
-        users_list = []
-        for user in users:
-            users_list.append({
-                'id': user['user_id'],
-                'username': user['username'],
-                'login': user['web_login'],
-                'password': user['web_password'],
-                'balance': user['balance'],
-                'is_admin': bool(user['is_admin'])
-            })
-        
-        logger.info(f"📊 Проверка пользователей: найдено {len(users_list)} пользователей")
-        return jsonify({
-            'total_users': len(users_list),
-            'users': users_list
-        })
-    except Exception as e:
-        logger.error(f"❌ Ошибка проверки пользователей: {e}")
-        return jsonify({'error': str(e)}), 500
-
-@app.route('/api/login', methods=['POST', 'OPTIONS'])
-def login():
-    """Авторизация пользователя"""
-    if request.method == 'OPTIONS':
-        return '', 200
-        
-    try:
-        data = request.get_json()
-        if not data:
-            return jsonify({'error': 'No data provided'}), 400
-            
-        login = data.get('login')
-        password = data.get('password')
-        
-        logger.info(f"🔐 Попытка входа: {login}")
-        
-        if not login or not password:
-            return jsonify({'error': 'Login and password required'}), 400
-        
-        conn = get_db_connection()
-        user = conn.execute(
-            'SELECT * FROM users WHERE web_login = ? AND web_password = ?',
-            (login, password)
-        ).fetchone()
-        conn.close()
-        
-        if user:
-            # Создаем JWT токен
-            token_payload = {
-                'user_id': user['user_id'],
-                'username': user['username'],
-                'exp': datetime.datetime.utcnow() + datetime.timedelta(hours=24)
+            if (response.ok) {
+                const profile = await response.json();
+                this.currentUser = profile;
+                this.showDashboard();
+                console.log('✅ Автоматический вход выполнен:', profile.username);
+                return true;
+            } else {
+                console.log('❌ Токен невалиден');
+                localStorage.removeItem('magante_token');
+                this.token = null;
+                return false;
             }
-            token = jwt.encode(token_payload, app.config['SECRET_KEY'], algorithm='HS256')
-            
-            user_data = {
-                'user_id': user['user_id'],
-                'username': user['username'] or f"user_{user['user_id']}",
-                'ton_wallet': user['ton_wallet'] or '',
-                'card_details': user['card_details'] or '',
-                'balance': float(user['balance'] or 0),
-                'successful_deals': user['successful_deals'] or 0,
-                'lang': user['lang'] or 'ru',
-                'is_admin': bool(user['is_admin']),
-                'web_login': user['web_login']
-            }
-            
-            logger.info(f"✅ Успешный вход пользователя: {user['user_id']}")
-            return jsonify({
-                'token': token,
-                'user': user_data
-            })
-        
-        logger.warning(f"❌ Неудачная попытка входа: {login}")
-        return jsonify({'error': 'Неверный логин или пароль'}), 401
-        
-    except Exception as e:
-        logger.error(f"❌ Ошибка входа: {str(e)}")
-        return jsonify({'error': 'Internal server error'}), 500
+        } catch (error) {
+            console.error('❌ Ошибка проверки токена:', error);
+            return false;
+        }
+    }
 
-@app.route('/api/deals', methods=['POST', 'OPTIONS'])
-def create_deal():
-    """Создание новой сделки"""
-    if request.method == 'OPTIONS':
-        return '', 200
-        
-    try:
-        # Проверка авторизации
-        token = request.headers.get('Authorization', '')
-        if not token.startswith('Bearer '):
-            return jsonify({'error': 'Token required'}), 401
+    async login(login, password) {
+        try {
+            this.showLoading(true);
+            console.log('🔐 Отправка запроса на вход...');
+
+            const response = await fetch(`${this.apiBase}/api/login`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                },
+                body: JSON.stringify({ 
+                    login: login.trim(),
+                    password: password.trim()
+                })
+            });
+
+            console.log('📡 Ответ сервера:', response.status);
+
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(errorData.error || `Ошибка сервера: ${response.status}`);
+            }
+
+            const data = await response.json();
+            console.log('📦 Данные ответа:', data);
+
+            this.currentUser = data.user;
+            this.token = data.token;
+            localStorage.setItem('magante_token', this.token);
+            this.showDashboard();
+            this.showToast('✅ Успешный вход!', 'success');
+            return true;
             
-        token = token.replace('Bearer ', '')
-        
-        try:
-            payload = jwt.decode(token, app.config['SECRET_KEY'], algorithms=['HS256'])
-            user_id = payload['user_id']
-        except jwt.ExpiredSignatureError:
-            return jsonify({'error': 'Token expired'}), 401
-        except jwt.InvalidTokenError:
-            return jsonify({'error': 'Invalid token'}), 401
-        
-        data = request.get_json()
-        if not data:
-            return jsonify({'error': 'No data provided'}), 400
+        } catch (error) {
+            console.error('❌ Ошибка входа:', error);
+            this.showToast(error.message, 'error');
+            return false;
+        } finally {
+            this.showLoading(false);
+        }
+    }
+
+    async createDeal(amount, description, paymentMethod) {
+        try {
+            this.showLoading(true);
+            console.log('💼 Создание сделки...');
+
+            const response = await fetch(`${this.apiBase}/api/deals`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${this.token}`,
+                    'Accept': 'application/json'
+                },
+                body: JSON.stringify({
+                    amount: parseFloat(amount),
+                    description: description.trim(),
+                    payment_method: paymentMethod
+                })
+            });
+
+            console.log('📡 Ответ создания сделки:', response.status);
+
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(errorData.error || `Ошибка сервера: ${response.status}`);
+            }
+
+            const data = await response.json();
+            console.log('📦 Данные сделки:', data);
+
+            this.showToast('✅ Сделка создана! Ссылка отправлена в Telegram бот.', 'success');
+            document.getElementById('createDealForm').reset();
             
-        amount = data.get('amount')
-        description = data.get('description')
-        payment_method = data.get('payment_method')
+            // Переключаемся на список сделок и обновляем
+            this.showSection('dealsSection');
+            return data;
+            
+        } catch (error) {
+            console.error('❌ Ошибка создания сделки:', error);
+            this.showToast(error.message, 'error');
+            return null;
+        } finally {
+            this.showLoading(false);
+        }
+    }
+
+    async loadUserDeals() {
+        try {
+            console.log('📊 Загрузка сделок...');
+            const response = await fetch(`${this.apiBase}/api/deals/my`, {
+                headers: {
+                    'Authorization': `Bearer ${this.token}`,
+                    'Accept': 'application/json'
+                }
+            });
+
+            console.log('📡 Ответ загрузки сделок:', response.status);
+
+            if (response.ok) {
+                const deals = await response.json();
+                this.displayDeals(deals);
+                console.log('✅ Сделки загружены:', deals.length);
+            } else {
+                throw new Error('Ошибка загрузки сделок');
+            }
+        } catch (error) {
+            console.error('❌ Ошибка загрузки сделок:', error);
+            this.showToast('Ошибка загрузки сделок', 'error');
+            this.displayDeals([]);
+        }
+    }
+
+    async loadProfile() {
+        try {
+            console.log('👤 Загрузка профиля...');
+            const response = await fetch(`${this.apiBase}/api/profile`, {
+                headers: {
+                    'Authorization': `Bearer ${this.token}`,
+                    'Accept': 'application/json'
+                }
+            });
+
+            if (response.ok) {
+                const profile = await response.json();
+                this.displayProfile(profile);
+                this.updateUserBalance(profile.balance);
+                console.log('✅ Профиль загружен');
+            } else {
+                console.log('❌ Ошибка загрузки профиля');
+            }
+        } catch (error) {
+            console.error('❌ Ошибка загрузки профиля:', error);
+        }
+    }
+
+    async createTicket(subject, message) {
+        try {
+            this.showLoading(true);
+            console.log('🎫 Создание тикета...');
+
+            const response = await fetch(`${this.apiBase}/api/tickets`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${this.token}`,
+                    'Accept': 'application/json'
+                },
+                body: JSON.stringify({
+                    subject: subject.trim(),
+                    message: message.trim()
+                })
+            });
+
+            console.log('📡 Ответ создания тикета:', response.status);
+
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(errorData.error || `Ошибка сервера: ${response.status}`);
+            }
+
+            const data = await response.json();
+
+            this.showToast('✅ Тикет создан! Администраторы уведомлены.', 'success');
+            document.getElementById('newTicketForm').reset();
+            this.hideCreateTicket();
+            
+            // Обновляем список тикетов
+            this.loadUserTickets();
+            return data;
+            
+        } catch (error) {
+            console.error('❌ Ошибка создания тикета:', error);
+            this.showToast(error.message, 'error');
+            return false;
+        } finally {
+            this.showLoading(false);
+        }
+    }
+
+    async loadUserTickets() {
+        try {
+            console.log('🎫 Загрузка тикетов...');
+            const response = await fetch(`${this.apiBase}/api/tickets/my`, {
+                headers: {
+                    'Authorization': `Bearer ${this.token}`,
+                    'Accept': 'application/json'
+                }
+            });
+
+            console.log('📡 Ответ загрузки тикетов:', response.status);
+
+            if (response.ok) {
+                const tickets = await response.json();
+                this.displayTickets(tickets);
+                console.log('✅ Тикеты загружены:', tickets.length);
+            } else {
+                throw new Error('Ошибка загрузки тикетов');
+            }
+        } catch (error) {
+            console.error('❌ Ошибка загрузки тикетов:', error);
+            this.showToast('Ошибка загрузки тикетов', 'error');
+            this.displayTickets([]);
+        }
+    }
+
+    displayDeals(deals) {
+        const container = document.getElementById('dealsList');
+        if (!container) {
+            console.error('❌ Контейнер dealsList не найден!');
+            return;
+        }
+
+        if (!deals || deals.length === 0) {
+            container.innerHTML = `
+                <div class="col-12">
+                    <div class="alert alert-info text-center py-4">
+                        <i class="fas fa-info-circle fa-2x mb-3"></i>
+                        <h5>У вас пока нет сделок</h5>
+                        <p class="text-muted mb-0">Создайте первую сделку во вкладке "Создать сделку"</p>
+                    </div>
+                </div>
+            `;
+            return;
+        }
+
+        container.innerHTML = deals.map(deal => {
+            const dealLink = `https://t.me/magnate_otc_bot?start=${deal.id}`;
+            return `
+                <div class="col-md-6 mb-4">
+                    <div class="card feature-card h-100">
+                        <div class="card-body">
+                            <div class="d-flex justify-content-between align-items-start mb-3">
+                                <h5 class="card-title mb-0">
+                                    <i class="fas fa-exchange-alt me-2"></i>
+                                    Сделка #${deal.id?.slice(-8) || 'N/A'}
+                                </h5>
+                                <span class="badge bg-${this.getStatusColor(deal.status)}">
+                                    ${this.getStatusText(deal.status)}
+                                </span>
+                            </div>
+                            <p class="card-text">${deal.description || 'Описание отсутствует'}</p>
+                            <div class="deal-info">
+                                <div class="row small">
+                                    <div class="col-6">
+                                        <strong>Сумма:</strong><br>
+                                        <span class="fw-bold">${deal.amount} ${this.getPaymentMethodText(deal.payment_method)}</span>
+                                    </div>
+                                    <div class="col-6">
+                                        <strong>Статус:</strong><br>
+                                        <span class="badge bg-${this.getStatusColor(deal.status)}">${this.getStatusText(deal.status)}</span>
+                                    </div>
+                                </div>
+                                <div class="row small mt-2">
+                                    <div class="col-6">
+                                        <strong>Создана:</strong><br>
+                                        ${new Date(deal.created_at).toLocaleDateString('ru-RU')}
+                                    </div>
+                                    <div class="col-6">
+                                        <strong>ID:</strong><br>
+                                        <code class="small">${deal.id?.slice(-12) || 'N/A'}</code>
+                                    </div>
+                                </div>
+                                ${deal.status === 'active' ? `
+                                    <div class="mt-3">
+                                        <strong>🔗 Ссылка для покупателя:</strong>
+                                        <div class="input-group input-group-sm mt-1">
+                                            <input type="text" class="form-control" value="${dealLink}" readonly>
+                                            <button class="btn btn-outline-secondary" type="button" onclick="copyToClipboard('${dealLink}')">
+                                                <i class="fas fa-copy"></i>
+                                            </button>
+                                        </div>
+                                        <small class="text-muted">Отправьте эту ссылку покупателю</small>
+                                    </div>
+                                ` : ''}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }).join('');
+    }
+
+    displayTickets(tickets) {
+        const container = document.getElementById('ticketsList');
+        if (!container) {
+            console.error('❌ Контейнер ticketsList не найден!');
+            return;
+        }
+
+        if (!tickets || tickets.length === 0) {
+            container.innerHTML = `
+                <div class="alert alert-info text-center py-4">
+                    <i class="fas fa-ticket-alt fa-2x mb-3"></i>
+                    <h5>У вас пока нет тикетов</h5>
+                    <p class="text-muted mb-0">Создайте первый тикет для обращения в поддержку</p>
+                </div>
+            `;
+            return;
+        }
+
+        container.innerHTML = tickets.map(ticket => `
+            <div class="card mb-3">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-start mb-3">
+                        <h5 class="card-title mb-0">
+                            <i class="fas fa-ticket-alt me-2"></i>
+                            ${ticket.subject}
+                        </h5>
+                        <span class="badge bg-${this.getTicketStatusColor(ticket.status)}">
+                            ${this.getTicketStatusText(ticket.status)}
+                        </span>
+                    </div>
+                    <p class="card-text">${ticket.message}</p>
+                    <small class="text-muted">
+                        <i class="fas fa-calendar me-1"></i>
+                        Создан: ${new Date(ticket.created_at).toLocaleDateString('ru-RU')}
+                    </small>
+                </div>
+            </div>
+        `).join('');
+    }
+
+    displayProfile(profile) {
+        const container = document.getElementById('profileInfo');
+        if (!container) {
+            console.error('❌ Контейнер profileInfo не найден!');
+            return;
+        }
+
+        container.innerHTML = `
+            <div class="card">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="card-title mb-0">
+                        <i class="fas fa-user me-2"></i>
+                        Профиль
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <p><strong>ID:</strong> ${profile.user_id}</p>
+                            <p><strong>Имя:</strong> ${profile.username}</p>
+                            <p><strong>Баланс:</strong> <span class="text-success">${profile.balance} RUB</span></p>
+                            <p><strong>Сделки:</strong> ${profile.successful_deals}</p>
+                        </div>
+                        <div class="col-md-6">
+                            <p><strong>Статус:</strong> ${profile.is_admin ? '<span class="badge bg-danger">Администратор</span>' : '<span class="badge bg-secondary">Пользователь</span>'}</p>
+                            <p><strong>TON кошелек:</strong> ${profile.ton_wallet || 'Не указан'}</p>
+                            <p><strong>Карта:</strong> ${profile.card_details || 'Не указана'}</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+
+    updateUserBalance(balance) {
+        const balanceElement = document.getElementById('userBalance');
+        if (balanceElement) {
+            balanceElement.textContent = `Баланс: ${balance} RUB`;
+        }
+    }
+
+    showDashboard() {
+        console.log('🏠 Показ дашборда...');
         
-        if not all([amount, description, payment_method]):
-            return jsonify({'error': 'Missing required fields'}), 400
+        // Скрываем все секции
+        document.querySelector('.hero-section').style.display = 'none';
+        document.getElementById('loginSection').style.display = 'none';
         
-        # Создаем ID сделки
-        deal_id = f"web_{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}_{user_id}"
+        // Показываем дашборд
+        document.getElementById('dashboard').style.display = 'block';
         
-        conn = get_db_connection()
-        conn.execute('''
-            INSERT INTO deals (deal_id, amount, description, seller_id, status, payment_method, source)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        ''', (
-            deal_id,
-            float(amount),
-            description,
-            user_id,
-            'active',
-            payment_method,
-            'web'
-        ))
-        conn.commit()
-        conn.close()
+        // Обновляем навигацию
+        document.getElementById('loginNav').style.display = 'none';
+        document.getElementById('logoutNav').style.display = 'block';
         
-        logger.info(f"✅ Сделка создана: {deal_id} пользователем: {user_id}")
-        
-        # Формируем данные сделки для уведомления
-        deal_data = {
-            'id': deal_id,
-            'amount': amount,
-            'description': description,
-            'payment_method': payment_method,
-            'status': 'active',
-            'source': 'web'
+        // Показываем админ-панель если пользователь админ
+        if (this.currentUser && this.currentUser.is_admin) {
+            const adminLink = document.getElementById('adminLink');
+            if (adminLink) adminLink.style.display = 'block';
         }
         
-        # Уведомляем бота о создании сделки (асинхронно)
-        import threading
-        def notify_bot_async():
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            try:
-                result = loop.run_until_complete(notify_deal_creation_to_bot(user_id, deal_data))
-                logger.info(f"📤 Результат уведомления бота: {result}")
-            finally:
-                loop.close()
+        // Загружаем начальные данные
+        this.loadUserDeals();
+        this.loadProfile();
         
-        thread = threading.Thread(target=notify_bot_async)
-        thread.start()
-        
-        # Синхронизируем сделку с ботом
-        sync_result = asyncio.run(sync_deal_with_bot(deal_id))
-        
-        # Формируем ссылку для ответа
-        deal_link = f"https://t.me/magnate_otc_bot?start={deal_id}"
-        
-        return jsonify({
-            'id': deal_id,
-            'amount': amount,
-            'description': description,
-            'status': 'active',
-            'payment_method': payment_method,
-            'source': 'web',
-            'deal_link': deal_link,
-            'message': 'Сделка успешно создана. Уведомление отправлено в Telegram бот.',
-            'bot_sync': sync_result
-        })
-        
-    except Exception as e:
-        logger.error(f"❌ Ошибка создания сделки: {str(e)}")
-        return jsonify({'error': 'Internal server error'}), 500
+        console.log('✅ Дашборд показан');
+    }
 
-@app.route('/api/deals/my', methods=['GET'])
-def get_user_deals():
-    """Получение сделок пользователя"""
-    try:
-        # Проверка авторизации
-        token = request.headers.get('Authorization', '')
-        if not token.startswith('Bearer '):
-            return jsonify({'error': 'Token required'}), 401
-            
-        token = token.replace('Bearer ', '')
-        
-        try:
-            payload = jwt.decode(token, app.config['SECRET_KEY'], algorithms=['HS256'])
-            user_id = payload['user_id']
-        except jwt.ExpiredSignatureError:
-            return jsonify({'error': 'Token expired'}), 401
-        except jwt.InvalidTokenError:
-            return jsonify({'error': 'Invalid token'}), 401
-        
-        conn = get_db_connection()
-        deals = conn.execute('''
-            SELECT * FROM deals 
-            WHERE seller_id = ? OR buyer_id = ?
-            ORDER BY created_at DESC
-        ''', (user_id, user_id)).fetchall()
-        conn.close()
-        
-        deals_list = []
-        for deal in deals:
-            deal_link = f"https://t.me/magnate_otc_bot?start={deal['deal_id']}"
-            deals_list.append({
-                'id': deal['deal_id'],
-                'amount': float(deal['amount']),
-                'description': deal['description'],
-                'seller_id': deal['seller_id'],
-                'buyer_id': deal['buyer_id'],
-                'status': deal['status'],
-                'payment_method': deal['payment_method'],
-                'source': deal['source'],
-                'created_at': deal['created_at'],
-                'deal_link': deal_link
-            })
-        
-        logger.info(f"📊 Загружено {len(deals_list)} сделок для пользователя {user_id}")
-        return jsonify(deals_list)
-        
-    except Exception as e:
-        logger.error(f"❌ Ошибка получения сделок: {str(e)}")
-        return jsonify({'error': 'Internal server error'}), 500
+    showLoginForm() {
+        console.log('🔐 Показ формы входа...');
+        document.querySelector('.hero-section').style.display = 'block';
+        document.getElementById('loginSection').style.display = 'none';
+        document.getElementById('dashboard').style.display = 'none';
+        document.getElementById('loginNav').style.display = 'block';
+        document.getElementById('logoutNav').style.display = 'none';
+    }
 
-@app.route('/api/profile', methods=['GET'])
-def get_profile():
-    """Получение профиля пользователя"""
-    try:
-        # Проверка авторизации
-        token = request.headers.get('Authorization', '')
-        if not token.startswith('Bearer '):
-            return jsonify({'error': 'Token required'}), 401
-            
-        token = token.replace('Bearer ', '')
+    showSection(sectionName) {
+        console.log('📁 Переключение на раздел:', sectionName);
         
-        try:
-            payload = jwt.decode(token, app.config['SECRET_KEY'], algorithms=['HS256'])
-            user_id = payload['user_id']
-        except jwt.ExpiredSignatureError:
-            return jsonify({'error': 'Token expired'}), 401
-        except jwt.InvalidTokenError:
-            return jsonify({'error': 'Invalid token'}), 401
-        
-        conn = get_db_connection()
-        user = conn.execute(
-            'SELECT * FROM users WHERE user_id = ?',
-            (user_id,)
-        ).fetchone()
-        conn.close()
-        
-        if user:
-            user_data = {
-                'user_id': user['user_id'],
-                'username': user['username'] or f"user_{user['user_id']}",
-                'ton_wallet': user['ton_wallet'] or '',
-                'card_details': user['card_details'] or '',
-                'balance': float(user['balance'] or 0),
-                'successful_deals': user['successful_deals'] or 0,
-                'lang': user['lang'] or 'ru',
-                'is_admin': bool(user['is_admin']),
-                'web_login': user['web_login']
+        // Скрываем все основные разделы (с суффиксом Section)
+        const sections = ['dealsSection', 'createDealSection', 'ticketsSection', 'profileSection', 'adminSection'];
+        sections.forEach(section => {
+            const element = document.getElementById(section);
+            if (element) {
+                element.style.display = 'none';
+                console.log('✅ Скрыт раздел:', section);
             }
-            return jsonify(user_data)
-        
-        return jsonify({'error': 'User not found'}), 404
-        
-    except Exception as e:
-        logger.error(f"❌ Ошибка получения профиля: {str(e)}")
-        return jsonify({'error': 'Internal server error'}), 500
+        });
 
-@app.route('/api/tickets', methods=['POST', 'OPTIONS'])
-def create_ticket():
-    """Создание тикета"""
-    if request.method == 'OPTIONS':
-        return '', 200
+        // Скрываем форму создания тикета если она открыта
+        const createTicketForm = document.getElementById('createTicketForm');
+        if (createTicketForm) createTicketForm.style.display = 'none';
         
-    try:
-        # Проверка авторизации
-        token = request.headers.get('Authorization', '')
-        if not token.startswith('Bearer '):
-            return jsonify({'error': 'Token required'}), 401
-            
-        token = token.replace('Bearer ', '')
-        
-        try:
-            payload = jwt.decode(token, app.config['SECRET_KEY'], algorithms=['HS256'])
-            user_id = payload['user_id']
-        except jwt.ExpiredSignatureError:
-            return jsonify({'error': 'Token expired'}), 401
-        except jwt.InvalidTokenError:
-            return jsonify({'error': 'Invalid token'}), 401
-        
-        data = request.get_json()
-        if not data:
-            return jsonify({'error': 'No data provided'}), 400
-            
-        subject = data.get('subject')
-        message = data.get('message')
-        
-        if not subject or not message:
-            return jsonify({'error': 'Subject and message required'}), 400
-        
-        ticket_id = f"ticket_{uuid.uuid4().hex[:8]}"
-        
-        conn = get_db_connection()
-        conn.execute('''
-            INSERT INTO tickets (id, user_id, subject, message, status)
-            VALUES (?, ?, ?, ?, ?)
-        ''', (ticket_id, user_id, subject, message, 'open'))
-        conn.commit()
-        
-        # Получаем данные пользователя
-        user = conn.execute(
-            'SELECT username FROM users WHERE user_id = ?',
-            (user_id,)
-        ).fetchone()
-        conn.close()
-        
-        logger.info(f"✅ Тикет создан: {ticket_id} пользователем: {user_id}")
-        
-        # Отправляем уведомление админам
-        admin_message = f"""
-🎫 <b>Новый тикет создан через веб-кабинет!</b>
-
-🆔 <b>ID:</b> <code>{ticket_id}</code>
-👤 <b>Пользователь:</b> {user['username'] if user else user_id}
-📌 <b>Тема:</b> {subject}
-📝 <b>Сообщение:</b> {message}
-
-💬 <b>Статус:</b> Открыт
-"""
-        
-        # Получаем всех админов и отправляем им уведомления
-        conn = get_db_connection()
-        admins = conn.execute(
-            'SELECT user_id FROM users WHERE is_admin = 1'
-        ).fetchall()
-        conn.close()
-        
-        admin_count = 0
-        for admin in admins:
-            if send_telegram_message(admin['user_id'], admin_message):
-                admin_count += 1
-        
-        return jsonify({
-            'id': ticket_id,
-            'subject': subject,
-            'message': message,
-            'status': 'open',
-            'created_at': datetime.datetime.now().isoformat(),
-            'admins_notified': admin_count,
-            'message': f'Тикет успешно создан. Уведомлено {admin_count} администраторов.'
-        })
-        
-    except Exception as e:
-        logger.error(f"❌ Ошибка создания тикета: {str(e)}")
-        return jsonify({'error': 'Internal server error'}), 500
-
-@app.route('/api/tickets/my', methods=['GET'])
-def get_user_tickets():
-    """Получение тикетов пользователя"""
-    try:
-        # Проверка авторизации
-        token = request.headers.get('Authorization', '')
-        if not token.startswith('Bearer '):
-            return jsonify({'error': 'Token required'}), 401
-            
-        token = token.replace('Bearer ', '')
-        
-        try:
-            payload = jwt.decode(token, app.config['SECRET_KEY'], algorithms=['HS256'])
-            user_id = payload['user_id']
-        except jwt.ExpiredSignatureError:
-            return jsonify({'error': 'Token expired'}), 401
-        except jwt.InvalidTokenError:
-            return jsonify({'error': 'Invalid token'}), 401
-        
-        conn = get_db_connection()
-        tickets = conn.execute('''
-            SELECT * FROM tickets 
-            WHERE user_id = ?
-            ORDER BY created_at DESC
-        ''', (user_id,)).fetchall()
-        conn.close()
-        
-        tickets_list = []
-        for ticket in tickets:
-            tickets_list.append({
-                'id': ticket['id'],
-                'subject': ticket['subject'],
-                'message': ticket['message'],
-                'status': ticket['status'],
-                'created_at': ticket['created_at']
-            })
-        
-        logger.info(f"📊 Загружено {len(tickets_list)} тикетов для пользователя {user_id}")
-        return jsonify(tickets_list)
-        
-    except Exception as e:
-        logger.error(f"❌ Ошибка получения тикетов: {str(e)}")
-        return jsonify({'error': 'Internal server error'}), 500
-
-@app.route('/api/sync-from-bot', methods=['POST'])
-def sync_from_bot():
-    """Синхронизация данных из бота"""
-    try:
-        data = request.get_json()
-        users = data.get('users', [])
-        deals = data.get('deals', [])
-        
-        conn = get_db_connection()
-        
-        # Синхронизация пользователей
-        for user_data in users:
-            conn.execute('''
-                INSERT OR REPLACE INTO users 
-                (user_id, username, ton_wallet, card_details, balance, successful_deals, lang, is_admin, web_login, web_password)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (
-                user_data['user_id'],
-                user_data.get('username', ''),
-                user_data.get('ton_wallet', ''),
-                user_data.get('card_details', ''),
-                user_data.get('balance', 0),
-                user_data.get('successful_deals', 0),
-                user_data.get('lang', 'ru'),
-                user_data.get('is_admin', 0),
-                user_data.get('web_login'),
-                user_data.get('web_password')
-            ))
-        
-        # Синхронизация сделок
-        for deal_data in deals:
-            conn.execute('''
-                INSERT OR REPLACE INTO deals 
-                (deal_id, amount, description, seller_id, buyer_id, status, payment_method, source)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (
-                deal_data['deal_id'],
-                deal_data['amount'],
-                deal_data['description'],
-                deal_data['seller_id'],
-                deal_data.get('buyer_id'),
-                deal_data.get('status', 'active'),
-                deal_data.get('payment_method'),
-                deal_data.get('source', 'bot')
-            ))
-        
-        conn.commit()
-        conn.close()
-        
-        logger.info(f"✅ Синхронизировано: {len(users)} пользователей, {len(deals)} сделок")
-        return jsonify({
-            "message": f"Синхронизировано: {len(users)} пользователей, {len(deals)} сделок",
-            "status": "success"
-        })
-        
-    except Exception as e:
-        logger.error(f"❌ Ошибка синхронизации: {str(e)}")
-        return jsonify({'error': str(e)}), 500
-
-@app.route('/api/sync-to-bot', methods=['POST'])
-def sync_to_bot():
-    """Синхронизация данных с ботом"""
-    try:
-        data = request.get_json()
-        deal_id = data.get('deal_id')
-        
-        if not deal_id:
-            return jsonify({'error': 'deal_id required'}), 400
-        
-        # Синхронизируем конкретную сделку с ботом
-        sync_result = asyncio.run(sync_deal_with_bot(deal_id))
-        
-        return jsonify({
-            "message": f"Сделка {deal_id} синхронизирована с ботом",
-            "status": "success" if sync_result else "error",
-            "sync_result": sync_result
-        })
-        
-    except Exception as e:
-        logger.error(f"❌ Ошибка синхронизации с ботом: {str(e)}")
-        return jsonify({'error': str(e)}), 500
-
-@app.route('/api/notify-deal-created', methods=['POST'])
-def notify_deal_created():
-    """Уведомление о создании сделки через бота"""
-    try:
-        data = request.get_json()
-        user_id = data.get('user_id')
-        deal_id = data.get('deal_id')
-        amount = data.get('amount')
-        description = data.get('description')
-        payment_method = data.get('payment_method')
-        
-        if not all([user_id, deal_id, amount, description, payment_method]):
-            return jsonify({'error': 'Missing required fields'}), 400
-        
-        deal_data = {
-            'id': deal_id,
-            'amount': amount,
-            'description': description,
-            'payment_method': payment_method
+        // Показываем список тикетов по умолчанию
+        const ticketsList = document.getElementById('ticketsList');
+        if (ticketsList) {
+            ticketsList.style.display = 'block';
         }
-        
-        # Уведомляем бота о создании сделки
-        result = asyncio.run(notify_deal_creation_to_bot(user_id, deal_data))
-        
-        return jsonify({
-            "status": "success",
-            "message": "Уведомление отправлено в бот",
-            "result": result
-        })
-            
-    except Exception as e:
-        logger.error(f"❌ Ошибка отправки уведомления: {str(e)}")
-        return jsonify({'error': str(e)}), 500
 
-@app.route('/api/reset-database', methods=['POST'])
-def reset_database():
-    """Полный сброс базы данных (только для разработки)"""
-    try:
-        conn = get_db_connection()
-        
-        # Удаляем все таблицы
-        conn.execute('DROP TABLE IF EXISTS users')
-        conn.execute('DROP TABLE IF EXISTS deals')
-        conn.execute('DROP TABLE IF EXISTS tickets')
-        
-        # Пересоздаем таблицы
-        conn.execute('''
-            CREATE TABLE users (
-                user_id INTEGER PRIMARY KEY,
-                username TEXT,
-                ton_wallet TEXT,
-                card_details TEXT,
-                balance REAL DEFAULT 0.0,
-                successful_deals INTEGER DEFAULT 0,
-                lang TEXT DEFAULT 'ru',
-                granted_by INTEGER,
-                is_admin INTEGER DEFAULT 0,
-                web_login TEXT UNIQUE,
-                web_password TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        ''')
-        
-        conn.execute('''
-            CREATE TABLE deals (
-                deal_id TEXT PRIMARY KEY,
-                amount REAL,
-                description TEXT,
-                seller_id INTEGER,
-                buyer_id INTEGER,
-                status TEXT DEFAULT 'active',
-                payment_method TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                source TEXT DEFAULT 'bot'
-            )
-        ''')
-        
-        conn.execute('''
-            CREATE TABLE tickets (
-                id TEXT PRIMARY KEY,
-                user_id INTEGER,
-                subject TEXT NOT NULL,
-                message TEXT NOT NULL,
-                status TEXT DEFAULT 'open',
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (user_id) REFERENCES users (user_id)
-            )
-        ''')
-        
-        # Создаем тестового пользователя
-        conn.execute('''
-            INSERT INTO users 
-            (user_id, username, ton_wallet, card_details, balance, successful_deals, lang, is_admin, web_login, web_password)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (
-            123456789, 'test_user', 'UQTEST123456789', '5536913996855484', 
-            1000.0, 5, 'ru', 1, 'testuser', 'testpass123'
-        ))
-        
-        conn.commit()
-        conn.close()
-        
-        logger.info("✅ База данных полностью пересоздана")
-        return jsonify({
-            "status": "success",
-            "message": "✅ База данных полностью пересоздана!",
-            "login": "testuser",
-            "password": "testpass123"
-        })
-        
-    except Exception as e:
-        logger.error(f"❌ Ошибка сброса базы данных: {e}")
-        return jsonify({'error': str(e)}), 500
+        // Показываем выбранный раздел
+        const targetSection = document.getElementById(sectionName);
+        if (targetSection) {
+            targetSection.style.display = 'block';
+            console.log('✅ Показан раздел:', sectionName);
+        } else {
+            console.log('❌ Целевой раздел не найден:', sectionName);
+        }
 
-# Инициализация базы данных при запуске
-with app.app_context():
-    init_db()
-    logger.info("🚀 Magante OTC API успешно запущен!")
+        // Обновляем активные кнопки в навигации
+        const navLinks = document.querySelectorAll('.list-group-item');
+        navLinks.forEach(link => {
+            link.classList.remove('active');
+            // Сравниваем без учета регистра и суффиксов
+            const linkOnClick = link.getAttribute('onclick') || '';
+            if (linkOnClick.includes(sectionName.replace('Section', ''))) {
+                link.classList.add('active');
+            }
+        });
 
-if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port, debug=False)
+        // Загружаем данные при переключении
+        switch(sectionName) {
+            case 'dealsSection':
+                this.loadUserDeals();
+                break;
+            case 'ticketsSection':
+                this.loadUserTickets();
+                break;
+            case 'profileSection':
+                this.loadProfile();
+                break;
+        }
+    }
+
+    showCreateTicket() {
+        console.log('📝 Показ формы создания тикета');
+        // Скрываем список тикетов
+        const ticketsList = document.getElementById('ticketsList');
+        if (ticketsList) ticketsList.style.display = 'none';
+        
+        // Показываем форму создания тикета
+        const createTicketForm = document.getElementById('createTicketForm');
+        if (createTicketForm) createTicketForm.style.display = 'block';
+    }
+
+    hideCreateTicket() {
+        console.log('📝 Скрытие формы создания тикета');
+        // Показываем список тикетов
+        const ticketsList = document.getElementById('ticketsList');
+        if (ticketsList) ticketsList.style.display = 'block';
+        
+        // Скрываем форму создания тикета
+        const createTicketForm = document.getElementById('createTicketForm');
+        if (createTicketForm) createTicketForm.style.display = 'none';
+    }
+
+    showLoading(show) {
+        const loader = document.getElementById('loadingOverlay');
+        if (loader) {
+            loader.style.display = show ? 'flex' : 'none';
+            console.log(show ? '🔄 Показать загрузку' : '✅ Скрыть загрузку');
+        }
+    }
+
+    showToast(message, type = 'info') {
+        // Простой toast без Bootstrap
+        const toast = document.createElement('div');
+        toast.style.cssText = `
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 15px 20px;
+            border-radius: 5px;
+            color: white;
+            z-index: 10000;
+            max-width: 300px;
+            word-wrap: break-word;
+            font-family: Arial, sans-serif;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        `;
+        
+        const bgColors = {
+            'success': '#28a745',
+            'error': '#dc3545', 
+            'warning': '#ffc107',
+            'info': '#17a2b8'
+        };
+        
+        toast.style.backgroundColor = bgColors[type] || bgColors.info;
+        toast.textContent = message;
+        
+        document.body.appendChild(toast);
+        
+        // Автоматическое удаление через 5 секунд
+        setTimeout(() => {
+            if (toast.parentNode) {
+                toast.parentNode.removeChild(toast);
+            }
+        }, 5000);
+    }
+
+    logout() {
+        console.log('🚪 Выход...');
+        this.currentUser = null;
+        this.token = null;
+        localStorage.removeItem('magante_token');
+        this.showLoginForm();
+        this.showToast('Вы вышли из системы', 'info');
+    }
+
+    // Вспомогательные методы
+    getStatusText(status) {
+        const texts = {
+            'active': 'Активна',
+            'confirmed': 'Подтверждена',
+            'completed': 'Завершена',
+            'cancelled': 'Отменена'
+        };
+        return texts[status] || status;
+    }
+
+    getTicketStatusText(status) {
+        const texts = {
+            'open': 'Открыт',
+            'in_progress': 'В работе',
+            'closed': 'Закрыт'
+        };
+        return texts[status] || status;
+    }
+
+    getPaymentMethodText(method) {
+        const texts = {
+            'ton': 'TON',
+            'sbp': 'RUB',
+            'stars': 'XTR'
+        };
+        return texts[method] || method;
+    }
+
+    getStatusColor(status) {
+        const colors = {
+            'active': 'primary',
+            'confirmed': 'success',
+            'completed': 'success',
+            'cancelled': 'danger'
+        };
+        return colors[status] || 'secondary';
+    }
+
+    getTicketStatusColor(status) {
+        const colors = {
+            'open': 'warning',
+            'in_progress': 'info',
+            'closed': 'success'
+        };
+        return colors[status] || 'secondary';
+    }
+}
+
+// Глобальные функции
+function showSection(sectionName) {
+    let actualSectionName = sectionName;
+    if (!sectionName.endsWith('Section')) {
+        actualSectionName = sectionName + 'Section';
+    }
+    
+    if (window.maganteOTC) {
+        window.maganteOTC.showSection(actualSectionName);
+    } else {
+        console.error('MaganteOTC не инициализирован');
+    }
+}
+
+function showLogin() {
+    document.querySelector('.hero-section').style.display = 'none';
+    document.getElementById('loginSection').style.display = 'block';
+}
+
+function logout() {
+    if (window.maganteOTC) {
+        window.maganteOTC.logout();
+    }
+}
+
+function showCreateTicket() {
+    if (window.maganteOTC) {
+        window.maganteOTC.showCreateTicket();
+    }
+}
+
+function hideCreateTicket() {
+    if (window.maganteOTC) {
+        window.maganteOTC.hideCreateTicket();
+    }
+}
+
+function loadUserDeals() {
+    if (window.maganteOTC) {
+        window.maganteOTC.loadUserDeals();
+    }
+}
+
+// Функция для копирования ссылки сделки
+function copyToClipboard(text) {
+    navigator.clipboard.writeText(text).then(() => {
+        if (window.maganteOTC) {
+            window.maganteOTC.showToast('Ссылка скопирована в буфер обмена!', 'success');
+        }
+    }).catch(err => {
+        console.error('Ошибка копирования: ', err);
+        // Fallback для старых браузеров
+        const textArea = document.createElement('textarea');
+        textArea.value = text;
+        document.body.appendChild(textArea);
+        textArea.select();
+        try {
+            document.execCommand('copy');
+            if (window.maganteOTC) {
+                window.maganteOTC.showToast('Ссылка скопирована!', 'success');
+            }
+        } catch (err) {
+            console.error('Fallback copy failed: ', err);
+        }
+        document.body.removeChild(textArea);
+    });
+}
+
+// Инициализация
+document.addEventListener('DOMContentLoaded', function() {
+    console.log('🚀 DOM загружен, запуск MaganteOTC...');
+    window.maganteOTC = new MaganteOTC();
+});
