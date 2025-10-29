@@ -5,18 +5,15 @@ class MaganteOTC {
         this.token = localStorage.getItem('magante_token');
         
         console.log('🚀 Magante OTC инициализирован');
-        console.log('Токен в localStorage:', this.token ? 'есть' : 'нет');
         
         this.init();
     }
 
     async init() {
-        // Если есть токен, пробуем автоматический вход
         if (this.token) {
             console.log('🔄 Попытка автоматического входа...');
             const success = await this.validateToken();
             if (!success) {
-                // Если токен невалидный, показываем форму входа
                 this.showLoginForm();
             }
         } else {
@@ -41,7 +38,7 @@ class MaganteOTC {
         }
 
         // Создание сделки
-        const dealForm = document.getElementById('dealForm');
+        const dealForm = document.getElementById('createDealForm');
         if (dealForm) {
             dealForm.addEventListener('submit', (e) => {
                 e.preventDefault();
@@ -159,11 +156,9 @@ class MaganteOTC {
 
             if (response.ok) {
                 this.showToast('✅ Сделка создана!', 'success');
-                document.getElementById('dealForm').reset();
-                // Перезагружаем список сделок
-                if (document.getElementById('dealsSection').style.display !== 'none') {
-                    await this.loadUserDeals();
-                }
+                document.getElementById('createDealForm').reset();
+                // Переключаемся на список сделок и обновляем
+                this.showSection('deals');
                 return data;
             } else {
                 throw new Error(data.error || 'Ошибка при создании сделки');
@@ -250,10 +245,8 @@ class MaganteOTC {
                 this.showToast('✅ Тикет создан!', 'success');
                 document.getElementById('newTicketForm').reset();
                 this.hideCreateTicket();
-                // Перезагружаем список тикетов
-                if (document.getElementById('ticketsSection').style.display !== 'none') {
-                    await this.loadUserTickets();
-                }
+                // Обновляем список тикетов
+                this.loadUserTickets();
                 return data;
             } else {
                 throw new Error(data.error || 'Ошибка при создании тикета');
@@ -469,49 +462,82 @@ class MaganteOTC {
     showSection(sectionName) {
         console.log('📁 Переключение на раздел:', sectionName);
         
-        // Скрываем все разделы
-        const sections = ['dealsSection', 'createDealSection', 'ticketsSection', 'profileSection', 'adminSection'];
+        // Скрываем все основные разделы
+        const sections = ['deals', 'createDeal', 'tickets', 'profile', 'admin'];
         sections.forEach(section => {
             const element = document.getElementById(section);
-            if (element) element.style.display = 'none';
+            if (element) {
+                element.style.display = 'none';
+                console.log('✅ Скрыт раздел:', section);
+            } else {
+                console.log('❌ Раздел не найден:', section);
+            }
         });
 
-        // Скрываем форму создания тикета
+        // Скрываем форму создания тикета если она открыта
         const createTicketForm = document.getElementById('createTicketForm');
-        if (createTicketForm) createTicketForm.style.display = 'none';
+        if (createTicketForm) {
+            createTicketForm.style.display = 'none';
+        }
         
-        // Показываем список тикетов
+        // Показываем список тикетов по умолчанию
         const ticketsList = document.getElementById('ticketsList');
-        if (ticketsList) ticketsList.style.display = 'block';
+        if (ticketsList && sectionName !== 'createTicket') {
+            ticketsList.style.display = 'block';
+        }
 
         // Показываем выбранный раздел
         const targetSection = document.getElementById(sectionName);
         if (targetSection) {
             targetSection.style.display = 'block';
+            console.log('✅ Показан раздел:', sectionName);
+        } else {
+            console.log('❌ Целевой раздел не найден:', sectionName);
         }
+
+        // Обновляем активные кнопки в навигации
+        const navLinks = document.querySelectorAll('.nav-link, .list-group-item');
+        navLinks.forEach(link => {
+            link.classList.remove('active');
+            if (link.getAttribute('onclick')?.includes(sectionName)) {
+                link.classList.add('active');
+            }
+        });
 
         // Загружаем данные при переключении
         switch(sectionName) {
-            case 'dealsSection':
+            case 'deals':
                 this.loadUserDeals();
                 break;
-            case 'ticketsSection':
+            case 'tickets':
                 this.loadUserTickets();
                 break;
-            case 'profileSection':
+            case 'profile':
                 this.loadProfile();
                 break;
         }
     }
 
     showCreateTicket() {
-        document.getElementById('ticketsList').style.display = 'none';
-        document.getElementById('createTicketForm').style.display = 'block';
+        console.log('📝 Показ формы создания тикета');
+        // Скрываем список тикетов
+        const ticketsList = document.getElementById('ticketsList');
+        if (ticketsList) ticketsList.style.display = 'none';
+        
+        // Показываем форму создания тикета
+        const createTicketForm = document.getElementById('createTicketForm');
+        if (createTicketForm) createTicketForm.style.display = 'block';
     }
 
     hideCreateTicket() {
-        document.getElementById('ticketsList').style.display = 'block';
-        document.getElementById('createTicketForm').style.display = 'none';
+        console.log('📝 Скрытие формы создания тикета');
+        // Показываем список тикетов
+        const ticketsList = document.getElementById('ticketsList');
+        if (ticketsList) ticketsList.style.display = 'block';
+        
+        // Скрываем форму создания тикета
+        const createTicketForm = document.getElementById('createTicketForm');
+        if (createTicketForm) createTicketForm.style.display = 'none';
     }
 
     showLoading(show) {
@@ -617,6 +643,8 @@ class MaganteOTC {
 function showSection(sectionName) {
     if (window.maganteOTC) {
         window.maganteOTC.showSection(sectionName);
+    } else {
+        console.error('MaganteOTC не инициализирован');
     }
 }
 
