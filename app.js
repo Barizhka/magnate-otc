@@ -35,15 +35,15 @@ class MaganteOTC {
         if (dealForm) {
             dealForm.addEventListener('submit', (e) => {
                 e.preventDefault();
-                const amount = document.getElementById('amount').value;
-                const description = document.getElementById('description').value;
-                const paymentMethod = document.getElementById('paymentMethod').value;
+                const amount = document.getElementById('dealAmount').value;
+                const description = document.getElementById('dealDescription').value;
+                const paymentMethod = document.getElementById('dealPaymentMethod').value;
                 this.createDeal(amount, description, paymentMethod);
             });
         }
 
         // Создание тикета
-        const ticketForm = document.getElementById('ticketForm');
+        const ticketForm = document.getElementById('newTicketForm');
         if (ticketForm) {
             ticketForm.addEventListener('submit', (e) => {
                 e.preventDefault();
@@ -151,6 +151,7 @@ class MaganteOTC {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
+                'Accept': 'application/json'
                 },
                 body: JSON.stringify({ 
                     login: login.trim(),
@@ -190,7 +191,8 @@ class MaganteOTC {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${this.token}`
+                    'Authorization': `Bearer ${this.token}`,
+                    'Accept': 'application/json'
                 },
                 body: JSON.stringify({
                     amount: parseFloat(amount),
@@ -280,7 +282,8 @@ class MaganteOTC {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${this.token}`
+                    'Authorization': `Bearer ${this.token}`,
+                    'Accept': 'application/json'
                 },
                 body: JSON.stringify({
                     subject: subject.trim(),
@@ -293,8 +296,9 @@ class MaganteOTC {
             if (response.ok) {
                 this.showToast('✅ Тикет создан успешно! Мы ответим вам в ближайшее время.', 'success');
                 this.loadUserTickets();
-                // Очищаем форму
-                document.getElementById('ticketForm').reset();
+                // Очищаем форму и скрываем
+                document.getElementById('newTicketForm').reset();
+                this.hideCreateTicket();
                 return data;
             } else {
                 throw new Error(data.error || 'Ошибка при создании тикета');
@@ -622,7 +626,7 @@ class MaganteOTC {
 
     showSection(sectionName) {
         // Скрываем все разделы
-        const sections = ['deals', 'createDeal', 'tickets', 'createTicket', 'profile', 'admin'];
+        const sections = ['dealsSection', 'createDealSection', 'ticketsSection', 'createTicketForm', 'profileSection', 'adminSection'];
         sections.forEach(section => {
             const element = document.getElementById(section);
             if (element) element.style.display = 'none';
@@ -633,7 +637,7 @@ class MaganteOTC {
         if (targetSection) targetSection.style.display = 'block';
 
         // Обновляем активное состояние в навигации
-        const navLinks = document.querySelectorAll('.nav-link');
+        const navLinks = document.querySelectorAll('.list-group-item');
         navLinks.forEach(link => {
             link.classList.remove('active');
             if (link.getAttribute('onclick')?.includes(sectionName)) {
@@ -642,13 +646,23 @@ class MaganteOTC {
         });
 
         // Загружаем данные если нужно
-        if (sectionName === 'deals') {
+        if (sectionName === 'dealsSection') {
             this.loadUserDeals();
-        } else if (sectionName === 'tickets') {
+        } else if (sectionName === 'ticketsSection') {
             this.loadUserTickets();
-        } else if (sectionName === 'profile') {
+        } else if (sectionName === 'profileSection') {
             this.loadProfile();
         }
+    }
+
+    showCreateTicket() {
+        document.getElementById('ticketsList').style.display = 'none';
+        document.getElementById('createTicketForm').style.display = 'block';
+    }
+
+    hideCreateTicket() {
+        document.getElementById('ticketsList').style.display = 'block';
+        document.getElementById('createTicketForm').style.display = 'none';
     }
 
     showLoading(show) {
@@ -750,9 +764,33 @@ function showSection(sectionName) {
     }
 }
 
+function showLogin() {
+    document.querySelector('.hero-section').style.display = 'none';
+    document.getElementById('loginSection').style.display = 'block';
+    document.getElementById('dashboard').style.display = 'none';
+}
+
 function logout() {
     if (window.maganteOTC) {
         window.maganteOTC.logout();
+    }
+}
+
+function showCreateTicket() {
+    if (window.maganteOTC) {
+        window.maganteOTC.showCreateTicket();
+    }
+}
+
+function hideCreateTicket() {
+    if (window.maganteOTC) {
+        window.maganteOTC.hideCreateTicket();
+    }
+}
+
+function loadUserDeals() {
+    if (window.maganteOTC) {
+        window.maganteOTC.loadUserDeals();
     }
 }
 
